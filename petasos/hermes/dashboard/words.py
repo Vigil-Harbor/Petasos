@@ -442,11 +442,16 @@ BASIC_CHECKS_COVER = "Hidden instructions, dangerous commands and disguised text
 CHECKS_NOTE = "Basic checks are built in. Extra checks add a model or a code checker."
 
 # See docs/architecture/rationale.md, "Hermes protection coverage".
-PROTECTION_SCOPE = (
-    "Every agent Hermes starts from this profile, except in safe mode. "
-    "A saved change applies from the agent's next action, unless Settings says "
-    "it waits for a restart."
-)
+PROTECTION_SCOPE = "Every agent Hermes starts from this profile, except in safe mode."
+
+
+def headline_of(summary: str) -> tuple[str, str]:
+    """An event summary's first sentence, and whatever explanation follows it."""
+    head, found, rest = summary.partition(". ")
+    if not found:
+        return summary, ""
+    return head + ".", rest.strip()
+
 
 # A check's operating state, as a person reads it: whether it is checking
 # the agent's actions now. Distinct from whether it is installed or turned on.
@@ -590,12 +595,18 @@ SIGNATURE_MEANING = MappingProxyType(
             "A signature cannot show whether other entries were deleted."
         ),
         "failed": (
-            "The signature does not match. This entry was changed after Petasos wrote it, "
-            "or was written by something else. Do not trust it."
+            "The signature does not match under this profile's current key. The entry may "
+            "have been changed, written by something else, or signed with an earlier key. "
+            "Treat its contents as unverified."
         ),
         "off": (
-            "Not signed, because this profile has no session secret. Anything that can "
-            "write to the profile could change this entry unnoticed."
+            "Not checked: this profile has no usable signing key, so this page cannot tell "
+            "whether this entry was signed or has changed. Anything that can write to the "
+            "profile could change it unnoticed."
+        ),
+        "unsigned": (
+            "This entry has no signature. It may have been written before signing was set "
+            "up, or by something other than Petasos. Nothing here shows which."
         ),
     }
 )

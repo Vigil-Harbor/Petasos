@@ -80,14 +80,29 @@ function MappingRows(props) {
   var labels = row.entry_labels || ["Name", "Value"];
   var numeric = String(row.type).indexOf("float") >= 0;
   function fromValue(value) {
+    var saved = props.savedValue || {};
     return Object.keys(value || {}).map(function (key) {
-      return { key: key, value: value[key] === null || value[key] === undefined ? "" : String(value[key]) };
+      return {
+        key: key,
+        value: value[key] === null || value[key] === undefined ? "" : String(value[key]),
+        // Whether this row is an entry already saved, whatever is typed into other rows later.
+        saved: Object.prototype.hasOwnProperty.call(saved, key),
+      };
     });
   }
   var rowsState = useState(function () {
     return fromValue(props.value);
   });
   var entries = rowsState[0];
+  var hasSaved = entries.some(function (entry) {
+    return entry.saved;
+  });
+  var names = entries.map(function (entry) {
+    return entry.key.trim();
+  });
+  var repeated = names.filter(function (name, index) {
+    return name && names.indexOf(name) !== index;
+  });
   function toValue(list) {
     var out = {};
     list.forEach(function (entry) {
@@ -107,8 +122,32 @@ function MappingRows(props) {
     },
     [incoming]
   );
+  // Once a save lands, the rows it stored are saved entries.
+  var savedNow = JSON.stringify(Object.keys(props.savedValue || {}).sort());
+  useEffect(
+    function () {
+      var saved = props.savedValue || {};
+      rowsState[1](function (held) {
+        return held.map(function (entry) {
+          return Object.prototype.hasOwnProperty.call(saved, entry.key.trim()) && !entry.saved ? Object.assign({}, entry, { saved: true }) : entry;
+        });
+      });
+    },
+    [savedNow]
+  );
   function update(list) {
     rowsState[1](list);
+    var seen = {};
+    var clash = list.some(function (entry) {
+      var name = entry.key.trim();
+      if (!name) return false;
+      if (seen[name]) return true;
+      seen[name] = true;
+      return false;
+    });
+    // Two rows with one name would silently become one entry: nothing is staged until they differ.
+    if (props.onProblem) props.onProblem(clash ? "Two entries have the same name. Give each its own name." : null);
+    if (clash) return;
     var value = toValue(list);
     if (!Object.keys(value).length && row.nullable) props.onValue(null);
     else props.onValue(value);
@@ -133,11 +172,12 @@ function MappingRows(props) {
         h(C.Input, {
           id: index === 0 ? id : undefined,
           value: entry.key,
-          disabled: props.disabled,
+          disabled: props.disabled || entry.saved,
+          "aria-invalid": repeated.indexOf(entry.key.trim()) >= 0 ? "true" : undefined,
           "aria-label": labels[0] + " " + (index + 1),
           onChange: function (e) {
             var next = entries.slice();
-            next[index] = { key: e.target.value, value: entry.value };
+            next[index] = { key: e.target.value, value: entry.value, saved: entry.saved };
             update(next);
           },
         }),
@@ -148,11 +188,13 @@ function MappingRows(props) {
           "aria-label": labels[1] + " " + (index + 1),
           onChange: function (e) {
             var next = entries.slice();
-            next[index] = { key: entry.key, value: e.target.value };
+            next[index] = { key: entry.key, value: e.target.value, saved: entry.saved };
             update(next);
           },
         }),
-        h(
+        entry.saved
+          ? h("span", { className: "petasos-tertiary" }, "Saved")
+          : h(
           Btn,
           {
             ghost: true,
@@ -168,6 +210,20 @@ function MappingRows(props) {
         )
       );
     }),
+    repeated.length
+      ? h(
+          "p",
+          { className: "petasos-field-error", role: "alert" },
+          "Two entries are named “" + repeated[0] + "”. Give each entry its own name; until then this change is not staged."
+        )
+      : null,
+    hasSaved
+      ? h(
+          "p",
+          { className: "petasos-secondary" },
+          "A saved entry can be changed, but not removed or renamed by itself. Reset, below, removes every saved entry of this setting; add back the ones to keep."
+        )
+      : null,
     h(
       "div",
       null,
@@ -177,7 +233,7 @@ function MappingRows(props) {
           outlined: true,
           disabled: props.disabled,
           onClick: function () {
-            rowsState[1](entries.concat([{ key: "", value: "" }]));
+            rowsState[1](entries.concat([{ key: "", value: "", saved: false }]));
           },
         },
         "Add"
@@ -240,7 +296,15 @@ function FieldControl(props) {
     );
   }
   if (isMapping(row)) {
-    return h(MappingRows, { row: row, value: props.value, disabled: props.disabled, describedBy: described, onValue: props.onValue });
+    return h(MappingRows, {
+      row: row,
+      value: props.value,
+      savedValue: props.savedValue,
+      disabled: props.disabled,
+      describedBy: described,
+      onValue: props.onValue,
+      onProblem: props.onProblem,
+    });
   }
   if (isList(row)) {
     return h("textarea", {
@@ -294,11 +358,11 @@ function FieldRow(props) {
       action = h(
         Btn,
         { ghost: true, compact: true, onClick: props.onReset, "aria-label": "Reset " + rowLabel(row) + " to " + showValue(target.value, row) },
-        "Reset to " + stateWords(row, target.value)
+        sameValue(target.value, saved.value) ? "Use the inherited value" : "Reset to " + stateWords(row, target.value)
       );
     }
   }
-  if (bounds) parts.push("Allowed: " + bounds);
+  if (bounds && !props.error) parts.push("Allowed: " + bounds);
   if (row.restart) parts.push("After a Hermes restart");
   var line = [];
   parts.forEach(function (part, index) {
@@ -321,6 +385,8 @@ function FieldRow(props) {
       className: cn(staged && "petasos-field-staged", props.error && "petasos-field-invalid"),
       control: h(FieldControl, {
         row: row,
+        savedValue: saved.origin === "override" ? saved.value : null,
+        onProblem: props.onProblem,
         value: props.value,
         text: props.text,
         error: props.error,
@@ -346,18 +412,75 @@ function FieldRow(props) {
   );
 }
 
-function RuleHelper(props) {
-  var rule = props.rule;
-  var byPath = rowsByPath(props.rows);
+function ruleState(rows, rule, props) {
+  var byPath = rowsByPath(rows);
   var suppress = byPath["rules.suppress"] || { value: [], origin: "default" };
   var severity = byPath["rules.severity_overrides"] || { value: {}, origin: "default" };
-  var quiet = (suppress.value || []).indexOf(rule) >= 0;
+  var quiet = (Array.isArray(suppress.value) ? suppress.value : []).indexOf(rule) >= 0;
   var lowered = severity.value && severity.value[rule];
-  var state = quiet
-    ? "Turned off (" + originText(suppress.origin, props.stored, props.catalog).toLowerCase() + "). It does not block, is not recorded, and adds no risk."
-    : lowered
-      ? "Counts as " + lowered + " (" + originText(severity.origin, props.stored, props.catalog).toLowerCase() + ")."
-      : "On, at its usual severity.";
+  return {
+    suppress: Array.isArray(suppress.value) ? suppress.value : [],
+    severity: severity.value || {},
+    quiet: quiet,
+    words: quiet
+      ? "Turned off (" + originText(suppress.origin, props.stored, props.catalog).toLowerCase() + "). It does not block, is not recorded, and adds no risk."
+      : lowered
+        ? "Counts as " + lowered + " (" + originText(severity.origin, props.stored, props.catalog).toLowerCase() + ")."
+        : "On, at its usual severity.",
+  };
+}
+
+function RuleHelper(props) {
+  var rule = props.rule;
+  var saved = ruleState(props.savedRows, rule, props);
+  var staged = ruleState(props.rows, rule, props);
+  var changed = props.dirty && staged.words !== saved.words;
+  // Each action is "loading", "allowed", "refused" or "unknown" (the question could not be asked).
+  var askedState = useState({ rule: rule, quiet: "loading", lower: "loading" });
+  var asked = askedState[0].rule === rule ? askedState[0] : { quiet: "loading", lower: "loading" };
+  var retryState = useState(0);
+  var lowerValue = Object.assign({}, staged.severity);
+  lowerValue[rule] = "low";
+  useEffect(
+    function () {
+      var live = true;
+      askedState[1]({ rule: rule, quiet: "loading", lower: "loading" });
+      function accepted(overrides) {
+        if (props.draftInvalid) return Promise.resolve("blocked");
+        var body = draftBody(mergeDraft(props.draft, { overrides: overrides }, knownPaths(props.savedRows)));
+        return call("/settings/preview", { method: "POST", body: body }).then(
+          function (body) {
+            if (body.valid !== false) return "allowed";
+            var aboutRules = (body.problems || []).some(function (problem) {
+              return /(^|\.)rules\.(suppress|severity_overrides)/.test(String(problem.path || ""));
+            });
+            // Another unsaved change is what Petasos objects to; that says nothing about this rule.
+            return aboutRules ? "refused" : "blocked";
+          },
+          function () {
+            return "unknown";
+          }
+        );
+      }
+      Promise.all([
+        staged.quiet ? Promise.resolve("allowed") : accepted({ rules: { suppress: staged.suppress.concat([rule]) } }),
+        accepted({ rules: { severity_overrides: lowerValue } }),
+      ]).then(function (answers) {
+        if (live) askedState[1]({ rule: rule, quiet: answers[0], lower: answers[1] });
+      });
+      return function () {
+        live = false;
+      };
+    },
+    [rule, Boolean(props.draftInvalid), JSON.stringify(draftBody(props.draft)), JSON.stringify(staged.suppress), JSON.stringify(staged.severity), retryState[0]]
+  );
+  var refused = [];
+  if (!staged.quiet && asked.quiet === "refused") refused.push("turned off");
+  if (asked.lower === "refused") refused.push("set to report without blocking");
+  var unknown = asked.quiet === "unknown" || asked.lower === "unknown";
+  var blocked = asked.quiet === "blocked" || asked.lower === "blocked";
+  var loading = asked.quiet === "loading" || asked.lower === "loading";
+  var offered = (!staged.quiet && asked.quiet === "allowed") || asked.lower === "allowed";
   return h(
     Panel,
     {
@@ -369,17 +492,54 @@ function RuleHelper(props) {
     h(KeyValues, {
       rows: [
         ["Rule id", h("span", { className: "petasos-idrow" }, h(Ident, null, rule), h(CopyButton, { value: rule, label: "Copy rule id" }))],
-        ["Now", state],
+        ["Saved", saved.words],
+        changed ? ["With your unsaved changes", staged.words] : null,
       ],
     }),
     h(
       "div",
       { className: "petasos-row-actions" },
-      quiet ? null : h(Btn, { outlined: true, disabled: props.disabled, onClick: function () { props.onQuiet(rule); } }, "Turn this rule off"),
-      h(Btn, { outlined: true, disabled: props.disabled, onClick: function () { props.onLower(rule); } }, "Report it without blocking"),
-      h(LinkButton, { onClick: function () { go("tryit", { rule: rule, sentence: props.sentence || "" }); } }, "Test it in Try it")
+      staged.quiet || asked.quiet !== "allowed"
+        ? null
+        : h(Btn, { outlined: true, disabled: props.disabled, onClick: function () { props.onQuiet(rule); } }, "Turn this rule off"),
+      asked.lower !== "allowed"
+        ? null
+        : h(Btn, { outlined: true, disabled: props.disabled, onClick: function () { props.onLower(rule); } }, "Report it without blocking"),
+      h(
+        LinkButton,
+        {
+          onClick: function () {
+            var route = { rule: rule, sentence: props.sentence || "" };
+            if (props.dirty && props.testable) route.settings = JSON.stringify(draftBody(props.draft));
+            go("tryit", route);
+          },
+        },
+        props.dirty && props.testable ? "Test your unsaved changes in Try it" : "Test it in Try it"
+      )
     ),
-    h("p", { className: "petasos-secondary" }, "Not saved until you press Save.")
+    props.dirty && !props.testable
+      ? h("p", { className: "petasos-secondary" }, "Try it would use the saved settings: your unsaved changes have not been checked yet, or need fixing.")
+      : null,
+    refused.length
+      ? h("p", { className: "petasos-secondary", role: "status" }, "These settings do not let this rule be " + refused.join(" or ") + ".")
+      : null,
+    loading ? h("p", { className: "petasos-secondary", role: "status" }, "Checking what can be changed for this rule…") : null,
+    blocked && !loading
+      ? h(
+          "p",
+          { className: "petasos-secondary", role: "status" },
+          "Another unsaved change needs fixing before Petasos can say what is allowed for this rule. Use “Go to it” in the bar above."
+        )
+      : null,
+    unknown && !loading
+      ? h(
+          "p",
+          { className: "petasos-secondary", role: "status" },
+          "Petasos could not be asked what can be changed for this rule. ",
+          h(Btn, { ghost: true, compact: true, onClick: function () { retryState[1](retryState[0] + 1); } }, "Try again")
+        )
+      : null,
+    offered ? h("p", { className: "petasos-secondary" }, "Not saved until you press Save.") : null
   );
 }
 
@@ -435,6 +595,7 @@ function ChangeSheet(props) {
         stored: stored,
         after: preview && preview.stored,
         label: "Settings that would change",
+        sharedApplies: draft.enabled === false ? "" : (preview && preview.applies) || "",
         empty: top.length ? "No other setting changes." : "These edits leave every value as it was.",
       })
     )
@@ -450,24 +611,34 @@ function Settings(props) {
   var texts = textsState[0];
   var setTexts = textsState[1];
   var localErrorsState = useState({});
+  // A preview is kept with the draft it describes; only a matching one may be reviewed or saved.
   var previewState = useState(null);
-  var preview = previewState[0];
-  var savingState = useState(false);
+  var preview = previewState[0] ? previewState[0].body : null;
+  var previewRetryState = useState(0);
   var saveErrorState = useState(null);
+  var focusPathState = useState(null);
+  var discardedState = useState(null);
   var savedState = useState(null);
   var expertState = useState(false);
   var searchState = useState("");
   var sectionState = useState(
-    params.changed ? "changed" : params.rule ? "rules" : params.path ? topOf({ path: params.path }) || "general" : "basics"
+    params.changed ? "changed" : params.section ? params.section : params.rule ? "rules" : params.path ? topOf({ path: params.path }) || "general" : "basics"
   );
   var section = sectionState[0];
   var resetState = useState(null);
   var reviewState = useState(params.review === "1");
   var reviewing = reviewState[0];
   var toolbarRef = useRef(null);
+  var lastReset = useRef(null);
+  // After a reset the Reset control is gone, so focus goes to the setting it belonged to.
+  var rememberResetOpener = useReturnFocus(Boolean(resetState[0]), function () {
+    var path = lastReset.current;
+    return path && path !== "*" && document.getElementById(fieldId(path)) ? fieldId(path) : "petasos-settings-search";
+  });
 
   var empty = draftIsEmpty(draft);
-  var draftKey = JSON.stringify(draftBody(draft));
+  // The draft and the saved settings it would change: a preview describes exactly this pair.
+  var draftKey = JSON.stringify([draftBody(draft), catalog && catalog.stored]);
 
   useEffect(
     function () {
@@ -477,13 +648,14 @@ function Settings(props) {
         return;
       }
       var live = true;
+      var key = draftKey;
       var timer = window.setTimeout(function () {
         call("/settings/preview", { method: "POST", body: draftBody(draft) })
           .then(function (body) {
-            if (live) previewState[1](body);
+            if (live) previewState[1]({ key: key, body: body });
           })
           .catch(function (failure) {
-            if (live) previewState[1]({ failure: failure, valid: false, problems: [], changes: [] });
+            if (live) previewState[1]({ key: key, failed: failure, body: preview });
           });
       }, 250);
       return function () {
@@ -491,14 +663,42 @@ function Settings(props) {
         window.clearTimeout(timer);
       };
     },
-    [draftKey]
+    [draftKey, previewRetryState[0]]
   );
+  var previewCurrent = Boolean(previewState[0] && previewState[0].key === draftKey && !previewState[0].failed && previewState[0].body);
+  var previewFailed = previewState[0] && previewState[0].key === draftKey ? previewState[0].failed : null;
 
   useEffect(
     function () {
       if (params.path) sectionState[1](topOf({ path: params.path }) || "general");
     },
     [params.path]
+  );
+  // Typed text is kept only for settings that are still staged or still wrong.
+  useEffect(
+    function () {
+      setTexts(function (held) {
+        var kept = {};
+        Object.keys(held).forEach(function (path) {
+          if (hasIn(draft.overrides, path) || localErrorsState[0][path]) kept[path] = held[path];
+        });
+        return Object.keys(kept).length === Object.keys(held).length ? held : kept;
+      });
+    },
+    [draftKey]
+  );
+  // "Fix the marked setting": open its section, then put focus on it.
+  useEffect(
+    function () {
+      var path = focusPathState[0];
+      if (!path) return;
+      var field = document.getElementById(fieldId(path));
+      if (!field) return;
+      focusPathState[1](null);
+      revealInView(field, "center");
+      field.focus({ preventScroll: true });
+    },
+    [focusPathState[0], section]
   );
   useEffect(
     function () {
@@ -509,19 +709,55 @@ function Settings(props) {
     [params.path, section, Boolean(catalog)]
   );
 
+  if (props.pending) {
+    // The notice above this view explains the unconfirmed change and offers Check again.
+    return h(
+      Panel,
+      { title: "Settings" },
+      h(
+        "p",
+        { role: "status" },
+        "Settings are not shown while a change is unconfirmed: what this page last read may no longer be what is saved. Use Check again, above."
+      ),
+      empty ? null : h("p", { className: "petasos-secondary" }, "Your unsaved changes are kept.")
+    );
+  }
+  if (!catalog && props.catalogFailure) {
+    return h(
+      Panel,
+      { title: "Settings" },
+      h(
+        Notice,
+        {
+          tone: "destructive",
+          title: "The settings could not be loaded",
+          action: h(Btn, { onClick: props.onRetryCatalog }, "Try again"),
+        },
+        h("p", null, props.catalogFailure.message),
+        empty ? null : h("p", null, "Your unsaved changes are kept.")
+      )
+    );
+  }
   if (!catalog) {
     return h(Panel, { title: "Settings" }, h("p", { className: "petasos-help", role: "status" }, "Loading settings…"));
   }
 
   var savedRows = catalog.settings || [];
-  var rows = preview && preview.settings && preview.valid ? preview.settings : savedRows;
+  // Until a preview of this exact draft arrives, a staged value is shown as typed and nothing derived from it is.
+  var rows =
+    previewCurrent && preview.settings && preview.valid
+      ? preview.settings
+      : savedRows.map(function (row) {
+          if (!hasIn(draft.overrides, row.path)) return row;
+          return Object.assign({}, row, { value: getIn(draft.overrides, row.path), origin: "override" });
+        });
   var savedBy = rowsByPath(savedRows);
   var changeBy = {};
-  ((preview && preview.changes) || []).forEach(function (change) {
+  ((previewCurrent && preview.changes) || []).forEach(function (change) {
     changeBy[change.path] = change;
   });
   var problems = {};
-  ((preview && preview.problems) || []).forEach(function (problem) {
+  ((previewCurrent && preview.problems) || []).forEach(function (problem) {
     problems[String(problem.path).replace(/^overrides\./, "")] = problem.message;
   });
   var saveError = saveErrorState[0];
@@ -540,6 +776,7 @@ function Settings(props) {
   var sections = sectionsByPath(catalog);
 
   function stage(path, value) {
+    discardedState[1](null);
     var next = clone(draft);
     next.overrides = next.overrides || {};
     setIn(next.overrides, path, value);
@@ -559,8 +796,9 @@ function Settings(props) {
     localErrorsState[1](errors);
   }
   function stageTop(key, value) {
+    discardedState[1](null);
     var next = clone(draft);
-    if (value === stored[key]) delete next[key];
+    if (value === stored[key] && !props.saving) delete next[key];
     else next[key] = value;
     setDraft(next);
     savedState[1](null);
@@ -579,6 +817,7 @@ function Settings(props) {
     localErrorsState[1](errors);
   }
   function discard() {
+    discardedState[1]({ draft: draft, count: staged });
     setDraft(EMPTY_DRAFT);
     setTexts({});
     localErrorsState[1]({});
@@ -589,38 +828,47 @@ function Settings(props) {
     savedState[1]({ at: Date.now(), message: message, restart: (body && body.restart) || [] });
     reviewState[1](false);
   }
+  var DRAFT_NOTES = {
+    unknown: "Your draft is still here. Refresh to check what is saved before you save again.",
+    other: "Your changes are still here, not saved.",
+  };
+  // Only what was sent is cleared: an edit made while the save was in flight stays staged.
   function save() {
-    savingState[1](true);
+    if (props.saving || !previewCurrent) return;
+    var sent = clone(draftBody(draft));
     saveErrorState[1](null);
-    call("/settings", { method: "PUT", body: draftBody(draft) })
-      .then(function (body) {
-        afterWrite(body, body.restart_message);
-        setDraft(EMPTY_DRAFT);
-        setTexts({});
-        reviewState[1](false);
-        props.onSaved(body);
+    props
+      .onWrite(
+        function () {
+          return writeSettings(sent, preview && preview.applies);
+        },
+        "Save settings",
+        DRAFT_NOTES,
+        sent
+      )
+      .then(function (result) {
+        afterWrite(result.settings, result.message);
       })
       .catch(function (failure) {
-        if (failure.code === "managed") props.onLocked(failure.message);
-        saveErrorState[1](failure);
+        if (failure.path) saveErrorState[1](failure);
         reviewState[1](false);
-      })
-      .finally(function () {
-        savingState[1](false);
+        if (toolbarRef.current) revealInView(toolbarRef.current, "start");
       });
   }
   function reset(path) {
-    var url = path === "*" ? "/overrides" : "/overrides/" + path;
-    call(url, { method: "DELETE" })
-      .then(function (body) {
-        var effect = String(body.restart_message || "").replace(/^Reset\.\s*/, "");
-        afterWrite(body, [body.message, effect].filter(Boolean).join(" "));
-        props.onSaved(body.settings);
+    if (props.saving) return;
+    var row = path === "*" ? null : savedBy[path];
+    props
+      .onWrite(
+        function () {
+          return resetSettings(path);
+        },
+        path === "*" ? "Reset every setting you set" : "Reset " + rowLabel(row || { path: path })
+      )
+      .then(function (result) {
+        afterWrite(result.settings, result.message);
       })
-      .catch(function (failure) {
-        if (failure.code === "managed") props.onLocked(failure.message);
-        saveErrorState[1](failure);
-      })
+      .catch(function () {})
       .finally(function () {
         resetState[1](null);
       });
@@ -647,6 +895,12 @@ function Settings(props) {
     setTexts(t);
   }
 
+  function pickSection(key) {
+    searchState[1]("");
+    sectionState[1](key);
+    if (key === "changed") go("settings", { changed: "1" });
+    else if (params.changed) go("settings", { section: key });
+  }
   var expert = expertState[0];
   var search = searchState[0].trim().toLowerCase();
   var tops = [""];
@@ -710,7 +964,7 @@ function Settings(props) {
     var text = row.path in texts ? texts[row.path] : textFor(row, row.value);
     var lockedHere = (lockedInfo.settings || []).indexOf(row.path) >= 0;
     var problem = problems[row.path];
-    var consequences = (preview && preview.valid && preview.consequences) || (empty ? catalog.consequences : null) || {};
+    var consequences = (previewCurrent && preview.valid && preview.consequences) || (empty ? catalog.consequences : null) || {};
     return h(FieldRow, {
       consequence: row.value === "on" ? consequences[row.path] : null,
       key: row.path,
@@ -733,7 +987,18 @@ function Settings(props) {
       onUnstage: function () {
         unstage(row.path);
       },
+      onProblem: function (message) {
+        localErrorsState[1](function (held) {
+          if ((held[row.path] || null) === message) return held;
+          var next = Object.assign({}, held);
+          if (message) next[row.path] = message;
+          else delete next[row.path];
+          return next;
+        });
+      },
       onReset: function () {
+        rememberResetOpener();
+        lastReset.current = row.path;
         resetState[1](row.path);
       },
     });
@@ -828,7 +1093,14 @@ function Settings(props) {
     h(KeyValues, {
       rows: [
         [labels.overrides || "Your changes", overrideCount ? plural(overrideCount, "setting") + " set by you, on top of the job and strictness." : "None. The job and strictness decide every setting."],
-        ["Session secret", secrets.session_secret === "set" ? "Set. Activity records are signed." : "Not set. Activity records are not signed."],
+        [
+          "Session secret",
+          secrets.session_secret !== "set"
+            ? "Not set. Activity records are not signed."
+            : props.status.record_signing && props.status.record_signing.signed
+              ? "Set and usable. New activity records are signed; Activity shows whether each one still matches."
+              : "Set, but Petasos cannot make a signing key from it, so records are not signed. Running hermes petasos doctor says what is wrong with it.",
+        ],
         ["Hash key", secrets.hash_key === "set" ? "Set." : "Not set. Only needed to hide personal details as fingerprints."],
       ],
     }),
@@ -837,16 +1109,16 @@ function Settings(props) {
       ? h(
           "div",
           { className: "petasos-row-actions" },
-          h(Btn, { outlined: true, onClick: function () { resetState[1]("*"); } }, "Reset all " + plural(overrideCount, "setting") + " you set")
+          h(Btn, { outlined: true, onClick: function () { rememberResetOpener(); lastReset.current = "*"; resetState[1]("*"); } }, "Reset all " + plural(overrideCount, "setting") + " you set")
         )
       : null
   );
 
-  var changeCount = preview && preview.changes ? preview.changes.length : 0;
+  var changeCount = previewCurrent && preview.changes ? preview.changes.length : 0;
   var topChanges = ["enabled", "role", "level"].filter(function (key) {
     return draft[key] !== undefined && draft[key] !== stored[key];
   }).length;
-  var invalid = Boolean(preview && preview.valid === false) || Object.keys(localErrorsState[0]).length > 0;
+  var invalid = (previewCurrent && preview.valid === false) || Object.keys(localErrorsState[0]).length > 0;
   var resetPath = resetState[0];
   var resetRow = resetPath && resetPath !== "*" ? savedBy[resetPath] : null;
 
@@ -880,9 +1152,35 @@ function Settings(props) {
       { className: "petasos-savebox" },
       empty
         ? h("span", { className: "petasos-secondary", role: "status" }, "No unsaved changes")
-        : invalid
-          ? h("span", { className: "petasos-secondary petasos-strong", role: "status" }, "Fix the marked setting to save")
-          : preview
+        : previewFailed
+          ? h(
+              "span",
+              { className: "petasos-secondary petasos-strong", role: "status" },
+              "These changes could not be checked. ",
+              h(Btn, { ghost: true, compact: true, onClick: function () { previewRetryState[1](previewRetryState[0] + 1); } }, "Try again")
+            )
+          : invalid
+          ? h(
+              "span",
+              { className: "petasos-secondary petasos-strong", role: "status" },
+              "A setting needs fixing before you can save. ",
+              h(
+                Btn,
+                {
+                  ghost: true,
+                  compact: true,
+                  onClick: function () {
+                    var path = Object.keys(problems)[0];
+                    if (!path) return;
+                    searchState[1]("");
+                    sectionState[1](topOf({ path: path }) || "general");
+                    focusPathState[1](path);
+                  },
+                },
+                "Go to it"
+              )
+            )
+          : previewCurrent
             ? h(
                 "button",
                 {
@@ -897,14 +1195,28 @@ function Settings(props) {
                 plural(staged, "unsaved change"),
                 h(Icon, { name: "chevron", size: 14, className: "petasos-changecount-chevron" })
               )
-            : h("span", { className: "petasos-secondary", role: "status" }, "Checking…"),
-      empty ? null : h(Btn, { outlined: true, onClick: discard, "aria-label": "Discard all " + plural(staged, "unsaved change") }, "Discard all"),
+            : h("span", { className: "petasos-secondary", role: "status" }, "Checking changes…"),
       empty
         ? null
         : h(
             Btn,
             {
               outlined: true,
+              onClick: discard,
+              disabled: props.saving,
+              title: props.saving ? "Wait for the save in progress to finish" : undefined,
+              "aria-label": "Discard all " + plural(staged, "unsaved change"),
+            },
+            "Discard all"
+          ),
+      empty
+        ? null
+        : h(
+            Btn,
+            {
+              outlined: true,
+              disabled: invalid || !previewCurrent,
+              title: invalid ? "Fix the marked setting first" : undefined,
               onClick: function () {
                 go("tryit", { settings: JSON.stringify(draftBody(draft)) });
               },
@@ -914,15 +1226,15 @@ function Settings(props) {
       h(
         Btn,
         {
-          disabled: empty || invalid || !preview || lockedAll || savingState[0],
+          disabled: empty || invalid || !previewCurrent || lockedAll || props.saving,
           onClick: save,
         },
-        savingState[0] ? "Saving…" : "Save"
+        props.saving ? "Saving…" : "Save"
       )
     )
   );
   var sheet =
-    reviewing && preview && !invalid && !empty
+    reviewing && previewCurrent && !invalid && !empty
       ? h(ChangeSheet, {
           catalog: catalog,
           preview: preview,
@@ -955,6 +1267,38 @@ function Settings(props) {
           )
         )
       : null,
+    discardedState[0] && empty
+      ? h(
+          Notice,
+          {
+            tone: "info",
+            title: "Discarded " + plural(discardedState[0].count, "unsaved change"),
+            action: h(
+              Btn,
+              {
+                outlined: true,
+                onClick: function () {
+                  setDraft(discardedState[0].draft);
+                  discardedState[1](null);
+                },
+              },
+              "Undo"
+            ),
+          },
+          "Nothing was saved. Undo puts the changes back as they were."
+        )
+      : null,
+    props.catalogFailure
+      ? h(
+          Notice,
+          {
+            tone: "warning",
+            title: "The settings could not be re-read",
+            action: h(Btn, { ghost: true, onClick: props.onRetryCatalog }, "Try again"),
+          },
+          "The saved values shown here were read at " + (props.catalogReadAt ? clockTime(props.catalogReadAt) : "an earlier time") + " and may have changed since. " + props.catalogFailure.message
+        )
+      : null,
     lockedAll
       ? h(
           Notice,
@@ -973,14 +1317,16 @@ function Settings(props) {
           })
         )
       : null,
-    saveError && !saveError.path
-      ? h(Notice, { tone: "destructive", title: "Not saved" }, saveError.message)
-      : null,
     params.rule
       ? h(RuleHelper, {
           catalog: catalog,
           rule: params.rule,
           rows: rows,
+          savedRows: savedRows,
+          dirty: !empty,
+          draft: draft,
+          draftInvalid: invalid,
+          testable: previewCurrent && !invalid,
           stored: stored,
           sentence: params.sentence,
           disabled: lockedAll,
@@ -994,6 +1340,17 @@ function Settings(props) {
     h(
       "div",
       { className: "petasos-settings-body" },
+      h(Choice, {
+        id: "petasos-section-pick",
+        className: "petasos-section-pick",
+        label: "Section",
+        value: search ? "" : section,
+        placeholder: "Search results",
+        options: navItems.map(function (item) {
+          return { value: item.key, label: item.label + " (" + item.count + ")" + (item.changed ? " · changed" : "") };
+        }),
+        onChange: pickSection,
+      }),
       h(
         "nav",
         { className: "petasos-sections", "aria-label": "Settings sections" },
@@ -1008,10 +1365,7 @@ function Settings(props) {
               className: cn("petasos-section", active && "petasos-section-on"),
               "aria-current": active ? "page" : undefined,
               onClick: function () {
-                searchState[1]("");
-                sectionState[1](item.key);
-                if (item.key === "changed") go("settings", { changed: "1" });
-                else if (params.changed) go("settings");
+                pickSection(item.key);
               },
             },
             h("span", { className: "petasos-section-name" }, item.label),
@@ -1037,12 +1391,13 @@ function Settings(props) {
                 actions: h(Tag, null, plural(shown.length, "field")),
               },
               groups.length
-                ? groups.map(function (group) {
+                ? groups.map(function (group, index) {
                     var sub = group.section !== activeTop && group.section;
                     var info = sub ? sections[group.section] || {} : null;
+                    // A section's rows can resume after a nested group, so its name alone is not a unique key.
                     return h(
                       "div",
-                      { key: group.section || "root", className: "petasos-group" },
+                      { key: (group.section || "root") + ":" + index, className: "petasos-group" },
                       sub
                         ? h(
                             "div",
@@ -1078,12 +1433,19 @@ function Settings(props) {
           : resetRow && resetRow.reset_to
             ? rowLabel(resetRow) +
               ": " +
-              showValue(resetRow.value, resetRow) +
-              " becomes " +
-              showValue(resetRow.reset_to.value, resetRow) +
-              " (" +
-              originText(resetRow.reset_to.origin, stored, catalog).toLowerCase() +
-              "). This saves now. " +
+              (sameValue(resetRow.value, resetRow.reset_to.value)
+                ? "stays " +
+                  showValue(resetRow.value, resetRow) +
+                  " for now, and from then on follows " +
+                  originText(resetRow.reset_to.origin, stored, catalog).toLowerCase() +
+                  " instead of your setting"
+                : showValue(resetRow.value, resetRow) +
+                  " becomes " +
+                  showValue(resetRow.reset_to.value, resetRow) +
+                  " (" +
+                  originText(resetRow.reset_to.origin, stored, catalog).toLowerCase() +
+                  ")") +
+              ". This saves now. " +
               (resetRow.restart
                 ? "An agent started from now on uses this. An agent already running keeps the previous value until it restarts."
                 : "It applies from the agent's next tool call.")

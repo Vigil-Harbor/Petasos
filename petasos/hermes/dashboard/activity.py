@@ -23,6 +23,7 @@ from petasos.hermes.dashboard.words import (
     SIGNATURE_MEANING,
     describe_event,
     flag_risk_sentence,
+    headline_of,
     kind_label,
     outcome,
     rule_sentence,
@@ -236,6 +237,7 @@ def summarize(
     outcomes: dict[str, int] = {}
     blocked = 0
     failed = 0
+    unsigned = 0
     checked = 0
     shown = 0
     matched = [
@@ -265,7 +267,10 @@ def summarize(
         if key is not None:
             checked += 1
             if not verify_event(item.record, key):
-                failed += 1
+                if classify_integrity_failure(item.record) == "sig-missing":
+                    unsigned += 1
+                else:
+                    failed += 1
     figures, finding = _figures(outcomes)
     return envelope(
         total=shown,
@@ -279,7 +284,7 @@ def summarize(
         finding=finding,
         kind_labels={kind: kind_label(kind) for kind in counts},
         complete=complete,
-        integrity=_integrity_body(key, verification, checked, failed),
+        integrity=_integrity_body(key, verification, checked, failed, unsigned),
     )
 
 
@@ -369,8 +374,10 @@ def _window(
     """
     try:
         size = path.stat().st_size
-    except OSError:
+    except FileNotFoundError:
         return [], True, 0
+    except OSError as exc:
+        raise ApiError("record_unreadable", "The activity record could not be opened.") from exc
     stop = size if end is None else min(end, size)
     if stop <= 0 or budget <= 0:
         return [], True, 0
@@ -380,8 +387,10 @@ def _window(
         with path.open("rb") as handle:
             handle.seek(start)
             data = handle.read(take)
-    except OSError:
+    except FileNotFoundError:
         return [], True, 0
+    except OSError as exc:
+        raise ApiError("record_unreadable", "The activity record could not be read.") from exc
     if start > 0:
         newline = data.find(b"\n")
         if newline < 0:
@@ -506,6 +515,7 @@ def _event(
 ) -> dict[str, Any]:
     shown = _redact_record(record, redactor)
     shown["summary"] = describe_event(record, follower)
+    shown["headline"], shown["explanation"] = headline_of(shown["summary"])
     if record.get("event_type") == "ingest_flagged":
         shown["risk_sentence"] = flag_risk_sentence(record)
     shown["outcome"] = outcome(record, follower)
@@ -558,12 +568,19 @@ def _one(record: Mapping[str, Any], key: bytes | None) -> dict[str, str]:
         return {"status": "off", "meaning": SIGNATURE_MEANING["off"]}
     if verify_event(record, key):
         return {"status": "verified", "meaning": SIGNATURE_MEANING["verified"]}
-    failure = classify_integrity_failure(record)
-    if failure == "sig-missing":
-        sentence = "This event has no signature."
-    else:
-        sentence = "This event's signature does not match."
-    return {"status": "failed", "reason": sentence, "meaning": SIGNATURE_MEANING["failed"]}
+    # An entry with no signature is not evidence of a change: it is reported as
+    # unsigned, apart from one whose signature does not match.
+    if classify_integrity_failure(record) == "sig-missing":
+        return {
+            "status": "unsigned",
+            "reason": "This event has no signature.",
+            "meaning": SIGNATURE_MEANING["unsigned"],
+        }
+    return {
+        "status": "failed",
+        "reason": "This event's signature does not match.",
+        "meaning": SIGNATURE_MEANING["failed"],
+    }
 
 
 def _integrity(
@@ -572,8 +589,9 @@ def _integrity(
     verification: str,
 ) -> dict[str, Any]:
     failed = sum(1 for event in events if event.get("integrity", {}).get("status") == "failed")
+    unsigned = sum(1 for event in events if event.get("integrity", {}).get("status") == "unsigned")
     checked = len(events) if key is not None else 0
-    return _integrity_body(key, verification, checked, failed)
+    return _integrity_body(key, verification, checked, failed, unsigned)
 
 
 def _integrity_body(
@@ -581,15 +599,22 @@ def _integrity_body(
     verification: str,
     checked: int,
     failed: int,
+    unsigned: int = 0,
 ) -> dict[str, Any]:
-    """The list badge, and, when every signature matched, what that does not prove."""
-    mode = _mode(key, checked, failed)
+    """The list badge, and, when every signature matched, what that does not prove.
+
+    ``unsigned`` entries carry no signature. They are counted apart: they are
+    neither verified nor shown to have changed.
+    """
+    signed = checked - unsigned
+    mode = _mode(key, signed, failed)
     body: dict[str, Any] = {
         "mode": mode,
         "reason": verification if key is None else "",
         "checked": checked,
         "failed": failed,
-        "label": _integrity_label(mode, checked, failed),
+        "unsigned": unsigned,
+        "label": _integrity_label(mode, signed, failed, unsigned),
     }
     if mode == "verified":
         body["limit"] = SIGNATURE_MEANING["verified"]
@@ -597,20 +622,25 @@ def _integrity_body(
     return body
 
 
-def _integrity_label(mode: str, checked: int, failed: int) -> str:
+def _integrity_label(mode: str, checked: int, failed: int, unsigned: int = 0) -> str:
+    without = f", {unsigned} without a signature" if unsigned else ""
+    if mode == "unsigned":
+        return "No signatures to check"
     if mode == "verified":
         noun = "signature" if checked == 1 else "signatures"
-        return f"{checked} {noun} verified"
+        return f"{checked} {noun} verified{without}"
     if mode == "mixed":
-        return f"{failed} of {checked} do not match"
+        return f"{failed} of {checked} do not match{without}"
     if mode == "failed":
-        return "Signatures do not match"
-    return "Not signed"
+        return f"Signatures do not match{without}"
+    return "Signatures not checked"
 
 
 def _mode(key: bytes | None, checked: int, failed: int) -> str:
     if key is None:
         return "off"
+    if checked <= 0 and not failed:
+        return "unsigned"
     if failed and failed == checked:
         return "failed"
     if failed:

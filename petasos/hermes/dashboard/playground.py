@@ -12,6 +12,7 @@ import asyncio
 import json
 import logging
 from collections.abc import Callable, Iterable, Mapping
+from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
 from petasos.config.layers import resolve
@@ -93,9 +94,12 @@ _TIME_LIMIT = "Did not finish within Try it's time limit."
 # Why an optional check took no part, in words. A check that is on but not
 # working keeps the registry's own reason, which names the fault.
 _PLAIN_REASON = {
-    "not_installed": "Not installed. Overview says how to add it.",
+    "not_installed": "Not installed. See this check on Overview.",
     "off": "Turned off in Settings.",
 }
+
+# A run that reported an error does not say which check it came from.
+_RUN_ERROR = "A check reported an error in this run, so this page cannot say this one finished."
 
 _Redactor = Callable[..., str]
 
@@ -171,6 +175,7 @@ _TRIAL_STATES = {
     "checked": "Checked",
     "skipped": "Skipped",
     "paused": "Paused",
+    "unconfirmed": "Not confirmed",
 }
 _PAUSED_REASON = "Ran for this trial only. Paused for the agent."
 
@@ -183,7 +188,10 @@ def _mark(body: dict[str, Any], *, paused: bool) -> dict[str, Any]:
         purpose = spec.purpose if spec is not None else ""
         label = str(row.get("label") or "")
         row["name"] = f"{purpose} ({label})" if purpose and purpose != label else label
-        if row.get("participated") and paused:
+        if row.get("unconfirmed"):
+            # The run reported an error it did not tie to one check; this state is kept as it is.
+            code = "unconfirmed"
+        elif row.get("participated") and paused:
             code = "paused"
             row["reason"] = _PAUSED_REASON
         elif row.get("participated"):
@@ -421,11 +429,12 @@ async def _text(
         message,
         findings,
         text,
-        _scanner_rows(statuses, skipped, timed_out),
+        _scanner_rows(statuses, skipped, timed_out, errored=_errored(result)),
         timed_out,
         redactor,
         subject="text_out" if way == "outbound" else "text_in",
     )
+    body["checks_incomplete"] = _errored(result)
     body.update(_hidden_text(resolved.config, result, statuses, timed_out, redactor))
     if decision == "allow" and body["anonymization"]["code"] == "hidden":
         body["outcome"]["sentence"] = (
@@ -573,10 +582,11 @@ async def _tool(
         message,
         findings,
         rendered,
-        _scanner_rows(statuses, skipped, timed_out),
+        _scanner_rows(statuses, skipped, timed_out, errored=_errored(pipeline.result)),
         timed_out,
         redactor,
     )
+    body["checks_incomplete"] = _errored(pipeline.result)
     if deferred_to is not None:
         body["outcome"] = {
             "code": "allow",
@@ -716,7 +726,7 @@ def _body(
         },
         confidence_help=CONFIDENCE_HELP,
         message=shown,
-        findings=[_finding(item) for item in findings[:50]],
+        findings=[_finding(item, resolved.config.rules) for item in findings[:50]],
         findings_omitted=max(0, len(findings) - 50),
         normalized=_show(normalised, redactor) if changed else None,
         normalized_changed=changed,
@@ -726,7 +736,18 @@ def _body(
     )
 
 
-def _finding(finding: ScanFinding) -> dict[str, Any]:
+def _can_turn_off(rules: Any, rule_id: str) -> bool:
+    """Whether these settings would accept this rule in the list of rules turned off."""
+    if rule_id in rules.suppress:
+        return True
+    try:
+        replace(rules, suppress=(*rules.suppress, rule_id)).check()
+    except ConfigError:
+        return False
+    return True
+
+
+def _finding(finding: ScanFinding, rules: Any) -> dict[str, Any]:
     span = None
     if finding.position is not None:
         span = {"start": finding.position.start, "end": finding.position.end}
@@ -740,14 +761,27 @@ def _finding(finding: ScanFinding) -> dict[str, Any]:
         "confidence": finding.confidence,
         "span": span,
         "sentence": looks_for(finding.rule_id, finding.message),
+        "can_turn_off": _can_turn_off(rules, finding.rule_id),
     }
+
+
+def _errored(result: PipelineResult | None) -> bool:
+    """Whether a scan reported an error other than the time limit firing."""
+    return result is not None and any(error != "CancelledError" for error in result.errors)
 
 
 def _scanner_rows(
     statuses: tuple[ScannerStatus, ...],
     skipped: list[dict[str, Any]],
     timed_out: bool,
+    errored: bool = False,
 ) -> list[dict[str, Any]]:
+    """Which checks took part in this run.
+
+    ``errored`` says the run reported an error without naming the check it came
+    from. No optional check is then called checked: each is marked as not
+    confirmed, because this run cannot show it finished.
+    """
     rows: list[dict[str, Any]] = [
         {
             "id": "syntactic",
@@ -764,16 +798,19 @@ def _scanner_rows(
         reason = _PLAIN_REASON.get(status.state, status.reason)
         if status.state == "active" and timed_out:
             reason = _TIME_LIMIT
-        rows.append(
-            {
-                "id": status.id,
-                "label": status.label,
-                "participated": participated,
-                "state": state,
-                "reason": reason,
-                "link": _link(state, status.id),
-            }
-        )
+        row: dict[str, Any] = {
+            "id": status.id,
+            "label": status.label,
+            "participated": participated,
+            "state": state,
+            "reason": reason,
+            "link": _link(state, status.id),
+        }
+        if participated and errored:
+            row["participated"] = False
+            row["unconfirmed"] = True
+            row["reason"] = _RUN_ERROR
+        rows.append(row)
     for row in skipped:
         if "link" not in row:
             row["link"] = _link(str(row.get("state") or ""), str(row.get("id") or ""))

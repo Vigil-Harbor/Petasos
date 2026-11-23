@@ -7,22 +7,17 @@ var RANGES = [
   { value: "custom", label: "Custom", seconds: null },
 ];
 
-// Outcome codes must match server filters so paged counts agree with visible events.
-var OUTCOME_CODES = {
-  blocked: ["blocked", "stopped", "attempt_blocked"],
-  asked: ["asked", "attempt_asked"],
-  flagged: ["flagged"],
-  allowed: ["allowed"],
-  not_stopped: ["not_stopped"],
-};
+// An outcome filter is the list of outcome codes one of the API's figures covers.
+function figureCodes(figure) {
+  return (figure.outcomes || [figure.code]).slice().sort().join(",");
+}
 
-var OUTCOME_FILTER_WORDS = {
-  blocked: "blocked",
-  asked: "asked a person",
-  flagged: "flagged to the agent",
-  allowed: "let through while paused",
-  not_stopped: "setting changes not stopped",
-};
+function figureFor(figures, value) {
+  var wanted = String(value || "").split(",").filter(Boolean).sort().join(",");
+  return (figures || []).filter(function (figure) {
+    return figureCodes(figure) === wanted;
+  })[0];
+}
 
 // Custom date ranges use browser-local time with an unambiguous year-month-day form.
 function parseLocal(value) {
@@ -30,6 +25,7 @@ function parseLocal(value) {
   if (!match) return null;
   var date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]), Number(match[4]), Number(match[5]));
   if (date.getMonth() !== Number(match[2]) - 1 || date.getDate() !== Number(match[3])) return null;
+  if (Number(match[4]) > 23 || Number(match[5]) > 59) return null;
   return date;
 }
 
@@ -57,6 +53,12 @@ function DateTimeField(props) {
     [props.value]
   );
   var invalid = textState[0].trim() !== "" && !parseLocal(textState[0]);
+  useEffect(
+    function () {
+      if (props.onInvalid) props.onInvalid(invalid);
+    },
+    [invalid]
+  );
   function commit(text) {
     var date = parseLocal(text);
     if (date) props.onChange(localStamp(date));
@@ -135,7 +137,14 @@ function rangeWindow(filters) {
 function IntegrityStatus(props) {
   var integrity = props.integrity;
   if (!integrity) return null;
-  var tone = integrity.mode === "verified" ? "success" : integrity.mode === "off" ? "warning" : "destructive";
+  var tone =
+    integrity.mode === "verified"
+      ? integrity.unsigned
+        ? "warning"
+        : "success"
+      : integrity.mode === "off" || integrity.mode === "unsigned"
+        ? "warning"
+        : "destructive";
   var badge = h(
     Status,
     { tone: tone, title: integrity.mode === "off" ? integrity.reason : undefined },
@@ -146,7 +155,11 @@ function IntegrityStatus(props) {
     "div",
     { className: "petasos-integrity" },
     badge,
-    h(Disclosure, { label: integrity.limit_label, openLabel: "Hide what a signature shows" }, integrity.limit)
+    h(
+      LinkButton,
+      { expanded: props.open, onClick: props.onToggle },
+      props.open ? "Hide what a signature shows" : integrity.limit_label
+    )
   );
 }
 
@@ -155,6 +168,19 @@ function IntegrityNotice(props) {
   var signing = props.signing || {};
   var openState = useState(false);
   if (!integrity) return null;
+  if (integrity.mode === "off" && props.secretSet) {
+    return h(
+      Notice,
+      { tone: "warning", title: "Signatures cannot be checked" },
+      h(
+        "p",
+        null,
+        "A session secret is set, but Petasos cannot make a signing key from it, so this page cannot tell which records are genuine." +
+          (integrity.reason ? " " + sentenceCase(integrity.reason).replace(/\.?$/, ".") : "")
+      ),
+      h("p", null, "Running hermes petasos doctor names what is wrong with the secret.")
+    );
+  }
   if (integrity.mode === "off") {
     return h(
       Notice,
@@ -187,14 +213,26 @@ function IntegrityNotice(props) {
         : null
     );
   }
+  var unsigned = integrity.unsigned
+    ? h(
+        Notice,
+        { tone: "info", title: plural(integrity.unsigned, "record has", "records have") + " no signature" },
+        "A record without a signature may have been written before signing was set up, or by something other than Petasos. This page cannot tell which, and cannot say whether it changed."
+      )
+    : null;
   if (integrity.mode === "failed" || integrity.mode === "mixed") {
     return h(
-      Notice,
-      { tone: "destructive", strong: true, title: "Some records do not match their signatures" },
-      "A marked record was changed after Petasos wrote it, or written by something else. Do not trust it."
+      Fragment,
+      null,
+      h(
+        Notice,
+        { tone: "destructive", strong: true, title: "Some records do not match their signatures" },
+        "A marked record could not be verified with this profile's current key. It may have been changed, written by something else, or signed with an earlier key. Treat its contents as unverified."
+      ),
+      unsigned
     );
   }
-  return null;
+  return unsigned;
 }
 
 function ActivityFilters(props) {
@@ -226,9 +264,14 @@ function ActivityFilters(props) {
         })
     );
   }
-  var active = ["kind", "tool", "session", "severity", "outcome", "q"].some(function (key) {
+  var chosen = ["outcome", "kind", "tool", "session", "severity"].filter(function (key) {
     return filters[key];
   });
+  var active = chosen.length > 0 || Boolean(filters.q);
+  var openState = useState(chosen.length > 0);
+  var open = openState[0];
+  var figures = options.figures || [];
+  var shownFigure = figureFor(figures, filters.outcome);
   return h(
     "div",
     { className: "petasos-filters", role: "group", "aria-label": "Filter activity" },
@@ -274,12 +317,26 @@ function ActivityFilters(props) {
           },
         })
       ),
+      h(
+        Btn,
+        {
+          outlined: true,
+          className: "petasos-filter-toggle",
+          "aria-expanded": open,
+          "aria-controls": "petasos-filter-selects",
+          onClick: function () {
+            openState[1](!open);
+          },
+        },
+        (open ? "Hide filters" : "Filters") + (chosen.length ? " (" + chosen.length + " on)" : "")
+      ),
       active
         ? h(
             Btn,
             {
               ghost: true,
               onClick: function () {
+                openState[1](false);
                 props.onChange({ range: filters.range, from: filters.from, to: filters.to });
               },
             },
@@ -294,6 +351,9 @@ function ActivityFilters(props) {
           h(DateTimeField, {
             id: "petasos-from",
             label: "From",
+            onInvalid: function (bad) {
+              props.onRangeInvalid("from", bad);
+            },
             value: filters.from || "",
             onChange: function (value) {
               set("from", value);
@@ -302,6 +362,9 @@ function ActivityFilters(props) {
           h(DateTimeField, {
             id: "petasos-to",
             label: "To",
+            onInvalid: function (bad) {
+              props.onRangeInvalid("to", bad);
+            },
             value: filters.to || "",
             onChange: function (value) {
               set("to", value);
@@ -309,9 +372,29 @@ function ActivityFilters(props) {
           })
         )
       : null,
-    h(
+    open
+      ? h(
       "div",
-      { className: "petasos-filter-selects" },
+      { className: "petasos-filter-selects", id: "petasos-filter-selects" },
+      h(Choice, {
+        id: "petasos-filter-outcome",
+        label: "Outcome",
+        value: shownFigure ? shownFigure.code : filters.outcome ? "__current" : "any",
+        options: [{ value: "any", label: "Any" }]
+          .concat(
+            figures.map(function (figure) {
+              return { value: figure.code, label: figure.label + " (" + figure.count + ")" };
+            })
+          )
+          .concat(filters.outcome && !shownFigure ? [{ value: "__current", label: props.word || filters.outcome }] : []),
+        onChange: function (value) {
+          if (value === "__current") return;
+          var figure = figures.filter(function (item) {
+            return item.code === value;
+          })[0];
+          set("outcome", figure ? figureCodes(figure) : value);
+        },
+      }),
       h(Choice, {
         id: "petasos-filter-kind",
         label: "Kind",
@@ -351,6 +434,7 @@ function ActivityFilters(props) {
         },
       })
     )
+      : null
   );
 }
 
@@ -358,6 +442,8 @@ function EventRow(props) {
   var event = props.event;
   var outcome = event.outcome || {};
   var failed = event.integrity && event.integrity.status === "failed";
+  var headline = event.headline || event.summary;
+  var severityWord = event.severity_label || capital(event.severity);
   return h(
     "button",
     {
@@ -365,7 +451,21 @@ function EventRow(props) {
       id: "petasos-event-" + event.scan_id,
       className: cn("petasos-event", props.selected && "petasos-event-selected", props.nested && "petasos-event-nested"),
       "aria-current": props.selected ? "true" : undefined,
-      "aria-label": (props.selected ? "Open now: " : "Open details: ") + event.summary + ", " + listTime(event.timestamp),
+      "aria-label":
+        (props.selected ? "Open now: " : "Open details: ") +
+        [
+          headline,
+          event.headline && event.explanation ? event.explanation : "",
+          outcome.label || "Recorded",
+          severityWord ? "severity " + severityWord : "",
+          failed ? "signature does not match" : "",
+          event.integrity && event.integrity.status === "unsigned" ? "no signature" : "",
+          event.tool ? "tool " + event.tool : "",
+          event.session_id ? "conversation " + event.session_id : "",
+          listTime(event.timestamp),
+        ]
+          .filter(Boolean)
+          .join(", "),
       onClick: props.onOpen,
     },
     h(
@@ -377,14 +477,16 @@ function EventRow(props) {
     h(
       "span",
       { className: "petasos-event-what" },
-      h("span", { className: "petasos-event-summary" }, event.summary),
+      h("span", { className: "petasos-event-summary" }, headline),
+      event.headline && event.explanation ? h("span", { className: "petasos-event-explain" }, event.explanation) : null,
       h(
         "span",
         { className: "petasos-event-meta" },
         event.tool ? h(Mono, null, event.tool) : null,
         event.tool && event.session_id ? h("span", { "aria-hidden": true }, "·") : null,
         event.session_id ? h("span", null, event.session_id) : null,
-        failed ? h(Status, { tone: "destructive" }, "Signature does not match") : null
+        failed ? h(Status, { tone: "destructive" }, "Signature does not match") : null,
+        event.integrity && event.integrity.status === "unsigned" ? h(Status, { tone: "neutral" }, "No signature") : null
       )
     ),
     h("span", { className: "petasos-event-severity" }, h(Severity, { value: event.severity, label: event.severity_label })),
@@ -486,7 +588,11 @@ function EventDetail(props) {
   var risky = Boolean(event.session_id && event.risk_block);
   useEffect(
     function () {
-      if (ref.current) ref.current.focus({ preventScroll: true });
+      if (!ref.current) return;
+      ref.current.focus({ preventScroll: true });
+      // In one column the details sit above the list, possibly out of view.
+      var box = ref.current.getBoundingClientRect();
+      if (box.top < 0 || box.top > window.innerHeight - 160) revealInView(ref.current, "start");
     },
     [event.scan_id]
   );
@@ -518,7 +624,8 @@ function EventDetail(props) {
       h(Status, { tone: outcomeTone(outcome.code), large: true, state: outcome.code }, outcome.label || "Recorded"),
       h(Severity, { value: event.severity, label: event.severity_label })
     ),
-    h("h3", { className: "petasos-detail-title", id: "petasos-detail-title" }, event.summary),
+    h("h3", { className: "petasos-detail-title", id: "petasos-detail-title" }, event.headline || event.summary),
+    event.headline && event.explanation ? h("p", { className: "petasos-detail-note" }, event.explanation) : null,
     event.outcome_note ? h("p", { className: "petasos-detail-note" }, event.outcome_note) : null,
     event.risk_sentence ? h("p", { className: "petasos-detail-note" }, event.risk_sentence) : null,
     review || risky
@@ -640,19 +747,36 @@ function filtersFromRoute(params) {
   };
 }
 
+function sideBySide() {
+  return window.innerWidth > 1100;
+}
+
+function inView(element) {
+  var box = element.getBoundingClientRect();
+  return box.top >= 80 && box.bottom <= window.innerHeight - 40;
+}
+
 function Activity(props) {
   var params = props.route.params;
   var filters = filtersFromRoute(params);
   var selectedId = params.event || "";
-  var pageState = useState(null);
-  var page = pageState[0];
-  var olderState = useState([]);
-  var older = olderState[0];
-  var optionsState = useState(null);
-  var countState = useState(null);
+  // Rows, counts and signature status are read together and kept with the
+  // filters that produced them, so one selection is never shown under another.
+  var filterKey = JSON.stringify(filters);
+  var dataState = useState(null);
   var failureState = useState(null);
+  var olderState = useState({ key: filterKey, chunks: [] });
   var loadingMore = useState(false);
   var extraEvent = useState(null);
+  var limitState = useState(false);
+  var retryState = useState(0);
+  var returnTo = useRef("");
+  var anchored = useRef(false);
+  var noteState = useState("");
+  var lookupState = useState(0);
+  var olderFailureState = useState(null);
+  var badDateState = useState({});
+  var begin = useLatest();
 
   function setFilters(next) {
     var route = Object.assign({}, next);
@@ -662,65 +786,86 @@ function Activity(props) {
     go("activity", route);
   }
 
-  var codes = filters.outcome
-    ? OUTCOME_CODES[filters.outcome] || filters.outcome.split(",").filter(Boolean)
-    : [];
-  var span = rangeWindow(filters);
-  var request = {
-    limit: 100,
-    since: span.since,
-    until: span.until,
-    q: filters.q,
-    kind: filters.kind,
-    tool: filters.tool,
-    session: filters.session,
-    severity: filters.severity,
-    outcome: codes.join(","),
-  };
-  var key = JSON.stringify([request, filters.range === "custom" ? 0 : Math.floor(Date.now() / 600000)]);
+  function requestNow() {
+    var span = rangeWindow(filters);
+    return {
+      limit: 100,
+      since: span.since,
+      until: span.until,
+      q: filters.q,
+      kind: filters.kind,
+      tool: filters.tool,
+      session: filters.session,
+      severity: filters.severity,
+      outcome: filters.outcome,
+    };
+  }
 
+  var unreadableDate = filters.range === "custom" && (badDateState[0].from || badDateState[0].to);
+  var customSpan = filters.range === "custom" ? rangeWindow(filters) : null;
+  var backwards = Boolean(customSpan && customSpan.since && customSpan.until && customSpan.since > customSpan.until);
   usePoll(
     function () {
-      var now = rangeWindow(filters);
-      var live = Object.assign({}, request, { since: now.since, until: now.until });
-      call("/activity" + query(live))
-        .then(function (body) {
-          pageState[1](body);
-          failureState[1](null);
-        })
-        .catch(function (failure) {
-          failureState[1](failure);
-        });
-      call("/activity/summary" + query({ since: now.since, until: now.until, q: filters.q }))
-        .then(optionsState[1])
-        .catch(function () {});
+      // With older pages open the list is one fixed reading: a refreshed first
+      // page under them could drop or repeat events at the seam.
+      if (anchored.current || backwards) return null;
+      var latest = begin();
+      var live = requestNow();
+      if (!live.until) live.until = Math.floor(Date.now() / 1000);
       var counted = Object.assign({}, live);
       delete counted.limit;
-      call("/activity/summary" + query(counted))
-        .then(countState[1])
-        .catch(function () {});
+      return Promise.all([
+        call("/activity" + query(live)),
+        call("/activity/summary" + query({ since: live.since, until: live.until, q: filters.q })),
+        call("/activity/summary" + query(counted)),
+      ]).then(
+        function (answers) {
+          if (!latest()) return;
+          dataState[1]({ key: filterKey, page: answers[0], options: answers[1], counts: answers[2], request: live, readAt: Date.now() });
+          failureState[1](null);
+        },
+        function (failure) {
+          if (latest()) failureState[1]({ key: filterKey, failure: failure });
+        }
+      );
     },
     15000,
-    [key, props.refreshKey]
+    [filterKey, props.refreshKey, retryState[0]]
   );
-  useEffect(
-    function () {
-      olderState[1]([]);
-    },
-    [key]
-  );
+
+  var data = dataState[0] && dataState[0].key === filterKey ? dataState[0] : null;
+  var failure = failureState[0] && failureState[0].key === filterKey ? failureState[0].failure : null;
+  var page = data && data.page;
+  var older = olderState[0].key === filterKey ? olderState[0].chunks : [];
+  var olderFailure = olderFailureState[0] && olderFailureState[0].key === filterKey ? olderFailureState[0].failure : null;
+  if (!older.length && !loadingMore[0] && !olderFailure) anchored.current = false;
 
   function loadOlder() {
     var last = older.length ? older[older.length - 1] : page;
     if (!last || !last.next_cursor) return;
+    var key = filterKey;
+    // From here the list is one reading: a refresh already under way must not
+    // replace the first page, and older pages use the same time bounds as it.
+    anchored.current = true;
+    begin();
     loadingMore[1](true);
-    call("/activity" + query(Object.assign({}, request, { cursor: last.next_cursor })))
-      .then(function (body) {
-        olderState[1](older.concat([body]));
-      })
-      .catch(function (failure) {
-        failureState[1](failure);
-      })
+    olderFailureState[1](null);
+    call("/activity" + query(Object.assign({}, data.request, { cursor: last.next_cursor })))
+      .then(
+        function (body) {
+          if (body.cursor_reset) {
+            // The record was rotated under the cursor: rows, counts and signatures are all read again.
+            reload("The record was rotated while you were reading, so the list was reloaded from the newest event.");
+            return;
+          }
+          olderState[1](function (held) {
+            return { key: key, chunks: (held.key === key ? held.chunks : []).concat([body]) };
+          });
+        },
+        function (problem) {
+          olderFailureState[1]({ key: key, failure: problem });
+        }
+      )
       .finally(function () {
         loadingMore[1](false);
       });
@@ -740,61 +885,90 @@ function Activity(props) {
 
   useEffect(
     function () {
-      if (!selectedId || selected) return;
-      call("/activity/" + encodeURIComponent(selectedId))
-        .then(function (body) {
-          extraEvent[1](body.event);
-        })
-        .catch(function () {
-          extraEvent[1](null);
-        });
+      if (!selectedId || selected || !page) return;
+      var live = true;
+      extraEvent[1]({ id: selectedId, state: "loading" });
+      call("/activity/" + encodeURIComponent(selectedId)).then(
+        function (body) {
+          if (live) extraEvent[1](body.event ? { id: selectedId, state: "found", event: body.event } : { id: selectedId, state: "missing" });
+        },
+        function (problem) {
+          if (live) extraEvent[1]({ id: selectedId, state: problem.status === 404 ? "missing" : "failed", failure: problem });
+        }
+      );
+      return function () {
+        live = false;
+      };
     },
-    [selectedId, Boolean(selected)]
+    [selectedId, Boolean(selected), Boolean(page), lookupState[0]]
   );
-  if (!selected && extraEvent[0] && extraEvent[0].scan_id === selectedId) selected = extraEvent[0];
+  var lookup = !selected && extraEvent[0] && extraEvent[0].id === selectedId ? extraEvent[0] : null;
+  if (lookup && lookup.state === "found") selected = lookup.event;
 
+  // Beside the details, keep the open row in sight. In one column the details
+  // own the scroll position; the row is shown again when they close.
   useEffect(
     function () {
-      if (!selectedId || !selectedInList) return;
-      var timer = window.setTimeout(function () {
+      if (selectedId) {
+        if (!selectedInList || !sideBySide()) return;
         var row = document.getElementById("petasos-event-" + selectedId);
-        if (!row) return;
-        var box = row.getBoundingClientRect();
-        if (box.top < 80 || box.bottom > window.innerHeight - 40) revealInView(row, "center");
-      }, 60);
-      return function () {
-        window.clearTimeout(timer);
-      };
+        if (row && !inView(row)) revealInView(row, "center");
+        return;
+      }
+      var id = returnTo.current;
+      returnTo.current = "";
+      if (!id) return;
+      var closed = document.getElementById("petasos-event-" + id);
+      if (!closed) return;
+      closed.focus({ preventScroll: true });
+      if (!inView(closed)) revealInView(closed, "center");
     },
     [selectedId, selectedInList]
   );
 
   var tail = older.length ? older[older.length - 1] : page;
-  var options = optionsState[0];
-  var counts = countState[0];
+  var skipped = older.reduce(function (most, chunk) {
+    return Math.max(most, chunk.skipped_lines || 0);
+  }, page ? page.skipped_lines || 0 : 0);
+  var skippedWords = (older.length ? "at least " : "") + plural(skipped, "line");
+  var options = data && data.options;
+  var counts = data && data.counts;
   var filtered = filters.kind || filters.tool || filters.session || filters.severity || filters.q || filters.outcome;
-  var neverRecorded = options && options.total === 0 && !filtered && filters.range === "all";
+  var neverRecorded = options && options.total === 0 && options.complete !== false && !filtered && filters.range === "all";
 
   function open(event) {
-    var route = Object.assign({}, params, { event: event.scan_id });
-    go("activity", route);
+    go("activity", Object.assign({}, params, { event: event.scan_id }));
   }
   function close() {
-    var id = selectedId;
+    returnTo.current = selectedId;
     var route = Object.assign({}, params);
     delete route.event;
     go("activity", route);
-    window.setTimeout(function () {
-      var row = document.getElementById("petasos-event-" + id);
-      if (row) row.focus({ preventScroll: true });
-    }, 50);
+  }
+  function reload(note) {
+    olderState[1]({ key: filterKey, chunks: [] });
+    olderFailureState[1](null);
+    anchored.current = false;
+    noteState[1](note || "");
+    retryState[1](function (n) {
+      return n + 1;
+    });
+  }
+  function retry() {
+    reload("");
   }
 
   var list;
-  if (failureState[0] && !page) {
-    list = h(Notice, { tone: "destructive", title: "The activity record could not be read" }, failureState[0].message);
+  if ((!page && failure) || backwards || unreadableDate) {
+    list = null;
   } else if (!page) {
     list = h("p", { className: "petasos-secondary", role: "status" }, "Loading activity…");
+  } else if (!events.length && skipped) {
+    list = h(
+      Empty,
+      { title: "No readable events" },
+      plural(skipped, "line") + " of the record could not be read as events, so this page cannot say what " + (skipped === 1 ? "it holds" : "they hold") + "."
+    );
   } else if (!events.length && neverRecorded) {
     list = h(
       Empty,
@@ -803,6 +977,12 @@ function Activity(props) {
         action: h(Btn, { outlined: true, onClick: function () { go("tryit", { example: "notes" }); } }, "Try it"),
       },
       "Blocks, approval requests and warnings are recorded here. Clean actions are not."
+    );
+  } else if (!events.length && page.complete === false) {
+    list = h(
+      Empty,
+      { title: "Nothing found in the part of the record that was read" },
+      "The record is too large to read in full here, so older events were not searched."
     );
   } else if (!events.length) {
     list = h(
@@ -840,57 +1020,163 @@ function Activity(props) {
         ? h(
             "div",
             { className: "petasos-more" },
-            h(Btn, { outlined: true, onClick: loadOlder, disabled: loadingMore[0] }, loadingMore[0] ? "Loading…" : "Show older events")
+            olderFailure
+              ? h("p", { className: "petasos-field-error", role: "alert" }, "Older events could not be loaded. " + olderFailure.message + " The events above are unchanged.")
+              : null,
+            h(
+              Btn,
+              { outlined: true, onClick: loadOlder, disabled: loadingMore[0] },
+              loadingMore[0] ? "Loading…" : olderFailure ? "Try loading older events again" : "Show older events"
+            )
           )
-        : page.complete === false
+        : tail && tail.complete === false
           ? h("p", { className: "petasos-secondary petasos-end" }, "Older events were not read.")
           : null
     );
   }
 
+  // The badge speaks for every counted event, not only the page on screen.
+  var listIntegrity = (counts && counts.integrity) || (page && page.integrity);
   var count = counts
-    ? plural(counts.total, "event") + " · " + plural(counts.blocked || 0, "tool call") + " blocked"
+    ? plural(counts.total, "event") +
+      " · " +
+      plural(counts.blocked || 0, "tool call") +
+      " blocked" +
+      (counts.complete === false ? " · counted in the part of the record that was read" : "")
     : "";
 
   return h(
     "div",
     { className: "petasos-stack petasos-activity" },
-    h(ActivityFilters, { filters: filters, options: options, onChange: setFilters }),
-    h(
-      "div",
-      { className: "petasos-listbar" },
-      h(
-        "p",
-        { className: "petasos-listbar-count", role: "status" },
-        count && !neverRecorded ? h("span", { className: "petasos-count" }, count) : null,
-        filters.outcome
-          ? h(
-              "span",
-              { className: "petasos-secondary" },
-              " · Only " + (params.word || OUTCOME_FILTER_WORDS[filters.outcome] || filters.outcome) + " ",
-              h(Btn, { ghost: true, compact: true, onClick: function () { setFilters(Object.assign({}, filters, { outcome: "" })); } }, "Show every outcome")
-            )
-          : null,
-        events.length ? h("span", { className: "petasos-secondary" }, " · Newest first · Times in " + timeZoneName()) : null
-      ),
-      page ? h(IntegrityStatus, { integrity: page.integrity }) : null
-    ),
-    page ? h(IntegrityNotice, { integrity: page.integrity, signing: props.status.record_signing }) : null,
-    neverRecorded && !events.length
-      ? list
-      : h(
-          "div",
-          { className: cn("petasos-split", selected && "petasos-split-open") },
-          h("div", { className: "petasos-split-main" }, h(C.Card, { className: "petasos-panel petasos-list-card" }, list)),
-          selected
-            ? h(EventDetail, {
-                event: selected,
-                onClose: close,
-                onFilter: function (patch) {
-                  setFilters(Object.assign({}, filters, patch));
-                },
-              })
-            : null
+    h(ActivityFilters, {
+      filters: filters,
+      options: options,
+      word: params.word,
+      onChange: setFilters,
+      onRangeInvalid: function (which, bad) {
+        badDateState[1](function (held) {
+          var next = Object.assign({}, held);
+          next[which] = bad;
+          return next;
+        });
+      },
+    }),
+    unreadableDate
+      ? h(
+          Notice,
+          { tone: "warning", title: "A date in the time range cannot be read" },
+          "Nothing is shown until it is fixed, because the list would be for a different range than the one typed."
         )
+      : null,
+    backwards
+      ? h(Notice, { tone: "warning", title: "The time range ends before it starts" }, "Nothing was searched. Set From earlier than To.")
+      : null,
+    !page && failure
+      ? h(
+          Notice,
+          {
+            tone: "destructive",
+            title: "The activity record could not be read",
+            action: h(Btn, { onClick: retry }, "Try again"),
+          },
+          h("p", null, "Nothing is listed because the read failed, not because nothing happened."),
+          h("p", { className: "petasos-tertiary" }, failure.message)
+        )
+      : null,
+    page && failure
+      ? h(
+          Notice,
+          {
+            tone: "warning",
+            title: "Could not refresh",
+            action: h(Btn, { ghost: true, onClick: retry }, "Try again"),
+          },
+          "These events, counts and signatures were read at " + clockTime(data.readAt) + ". " + failure.message
+        )
+      : null,
+    page && !unreadableDate
+      ? h(
+          "div",
+          { className: "petasos-listbar" },
+          h(
+            "p",
+            { className: "petasos-listbar-count", role: "status" },
+            count && (!neverRecorded || skipped) ? h("span", { className: "petasos-count" }, count) : null,
+            events.length ? h("span", { className: "petasos-secondary" }, " · Newest first · Times in " + timeZoneName()) : null,
+            skipped
+              ? h(
+                  "span",
+                  { className: "petasos-strong" },
+                  " · " + skippedWords + " of the record could not be read and " + (skipped === 1 ? "is" : "are") + " not counted or verified"
+                )
+              : null
+          ),
+          h(IntegrityStatus, {
+            integrity: listIntegrity,
+            open: limitState[0],
+            onToggle: function () {
+              limitState[1](!limitState[0]);
+            },
+          })
+        )
+      : null,
+    listIntegrity && listIntegrity.limit && limitState[0]
+      ? h("p", { className: "petasos-integrity-note", role: "status" }, listIntegrity.limit)
+      : null,
+    noteState[0] ? h(Notice, { tone: "info", title: "List reloaded" }, noteState[0]) : null,
+    anchored.current && data
+      ? h(
+          "p",
+          { className: "petasos-secondary", role: "status" },
+          "Showing one reading from " + clockTime(data.readAt) + " so older pages stay in order. New events are not added. ",
+          h(Btn, { ghost: true, compact: true, onClick: retry }, "Reload from the newest")
+        )
+      : null,
+    page
+      ? h(IntegrityNotice, {
+          integrity: listIntegrity,
+          signing: props.status.record_signing,
+          secretSet: Boolean(props.status.secrets && props.status.secrets.session_secret === "set"),
+        })
+      : null,
+    !list
+      ? null
+      : neverRecorded && !events.length && !skipped
+        ? list
+        : h(
+            "div",
+            { className: cn("petasos-split", (selected || lookup) && "petasos-split-open") },
+            h("div", { className: "petasos-split-main" }, h(C.Card, { className: "petasos-panel petasos-list-card" }, list)),
+            selected
+              ? h(EventDetail, {
+                  event: selected,
+                  onClose: close,
+                  onFilter: function (patch) {
+                    setFilters(Object.assign({}, filters, patch));
+                  },
+                })
+              : lookup
+                ? h(
+                    "aside",
+                    { className: "petasos-detail", "aria-label": "Event details", role: "status" },
+                    h(
+                      "div",
+                      { className: "petasos-detail-head" },
+                      h("p", { className: "petasos-detail-which" }, "Event ", h(Ident, null, selectedId)),
+                      h(Btn, { ghost: true, onClick: close, "aria-label": "Close event details" }, "Close")
+                    ),
+                    lookup.state === "loading"
+                      ? h("p", { className: "petasos-secondary" }, "Loading this event…")
+                      : lookup.state === "missing"
+                        ? h("p", null, (lookup.failure && lookup.failure.message) || "That event was not found.")
+                        : h(
+                            Fragment,
+                            null,
+                            h("p", null, "This event could not be read. " + ((lookup.failure && lookup.failure.message) || "")),
+                            h("div", { className: "petasos-row-actions" }, h(Btn, { onClick: function () { lookupState[1](lookupState[0] + 1); } }, "Try again"))
+                          )
+                  )
+                : null
+          )
   );
 }

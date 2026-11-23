@@ -563,7 +563,8 @@ def test_each_event_says_what_its_signature_proves(tmp_path: Path) -> None:
     assert "cannot show whether other entries were deleted" in signed["integrity"]["meaning"]
     unsigned = _page(live)["events"][0]
     assert unsigned["integrity"]["status"] == "off"
-    assert unsigned["integrity"]["meaning"].startswith("Not signed")
+    assert unsigned["integrity"]["meaning"].startswith("Not checked")
+    assert "cannot tell" in unsigned["integrity"]["meaning"]
 
 
 def test_the_blocked_count_agrees_with_the_rows_it_sits_above(tmp_path: Path) -> None:
@@ -648,3 +649,54 @@ def test_deferred_activity_names_the_checker(tmp_path: Path) -> None:
     assert event["outcome"] == {"code": "deferred", "label": "Left for Tirith"}
     assert event["kind_label"] == "Left for Tirith"
     assert "risk score is unchanged" in event["summary"]
+
+
+def test_a_summary_splits_into_a_headline_and_its_explanation() -> None:
+    """A list row carries the first sentence; a setting path's dot does not end it."""
+    from petasos.hermes.dashboard.words import headline_of
+
+    assert headline_of("Asked a person before letting the agent run a shell command.") == (
+        "Asked a person before letting the agent run a shell command.",
+        "",
+    )
+    assert headline_of(
+        "Changed tools.self_change. No approval for a guardrail change was live."
+    ) == (
+        "Changed tools.self_change.",
+        "No approval for a guardrail change was live.",
+    )
+
+
+def test_a_record_that_cannot_be_read_is_an_error_and_a_missing_one_is_empty(
+    tmp_path: Path,
+) -> None:
+    """Only a record that is absent may be reported as holding nothing."""
+    live = tmp_path / "petasos-enforcement.jsonl"
+    rotated = tmp_path / "petasos-enforcement.jsonl.1"
+
+    def page() -> dict[str, Any]:
+        return read_page(live, rotated, key=None, verification="off", query=ActivityQuery())
+
+    assert page()["events"] == []
+
+    # A directory where the record should be can be stat'ed but not read.
+    live.mkdir()
+    (live / "placeholder").write_text("x", encoding="utf-8")
+    with pytest.raises(ApiError):
+        page()
+
+
+def test_an_entry_without_a_signature_is_unsigned_not_changed(tmp_path: Path) -> None:
+    """Only a signature that does not match is evidence of a change."""
+    live = tmp_path / "petasos-enforcement.jsonl"
+    secret = b"s" * 32
+    _emit(live, [{"event_type": "quarantine", "tool": "terminal", "reason": "old"}])
+    _emit(live, [{"event_type": "quarantine", "tool": "terminal", "reason": "new"}], secret=secret)
+    key = verification_key(secret)
+    body = _page(live, key=key, verification="")
+    by_reason = {event["reason"]: event["integrity"]["status"] for event in body["events"]}
+    assert by_reason == {"old": "unsigned", "new": "verified"}
+    assert body["integrity"]["mode"] == "verified"
+    assert body["integrity"]["failed"] == 0
+    assert body["integrity"]["unsigned"] == 1
+    assert body["integrity"]["label"] == "1 signature verified, 1 without a signature"

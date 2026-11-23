@@ -217,3 +217,13 @@ def test_a_mapping_setting_names_the_two_halves_of_an_entry() -> None:
     assert rows["tools.aliases"]["entry_labels"] == ["Other name", "Real tool"]
     assert rows["rules.severity_overrides"]["entry_labels"] == ["Rule id", "Severity"]
     assert rows["tools.enabled"]["entry_labels"] is None
+
+
+def test_read_says_which_of_job_and_strictness_the_document_holds() -> None:
+    """A default that fills in for a missing choice is not reported as chosen."""
+    assert read_settings({}, secrets=_SECRETS)["chosen"] == []
+    only_job = read_settings({"role": "general"}, secrets=_SECRETS)
+    assert only_job["chosen"] == ["role"]
+    assert only_job["stored"]["level"] == "balanced"
+    both = read_settings({"role": "research", "level": "relaxed"}, secrets=_SECRETS)
+    assert both["chosen"] == ["role", "level"]

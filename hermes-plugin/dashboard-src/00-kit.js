@@ -55,15 +55,41 @@ function parseFailure(err) {
   return new ApiFailure(status, "http", "Petasos answered with an error (" + status + ").", null);
 }
 
+// A request that gets no answer must not hold a control forever.
+var READ_TIMEOUT_MS = 20000;
+var WRITE_TIMEOUT_MS = 30000;
+
 function call(path, options) {
-  var init = { method: (options && options.method) || "GET" };
+  var method = (options && options.method) || "GET";
+  var init = { method: method };
   if (options && options.body !== undefined) {
     init.body = JSON.stringify(options.body);
     init.headers = { "Content-Type": "application/json" };
   }
-  return SDK.fetchJSON(API + path, init).catch(function (err) {
+  var controller = typeof AbortController === "function" ? new AbortController() : null;
+  if (controller) init.signal = controller.signal;
+  var limit = (options && options.timeout) || (method === "GET" ? READ_TIMEOUT_MS : WRITE_TIMEOUT_MS);
+  var timer;
+  // The timer settles the promise itself: an aborted body read may never reject.
+  var waited = new Promise(function (_resolve, reject) {
+    timer = window.setTimeout(function () {
+      reject(new ApiFailure(0, "timeout", "Petasos did not answer in " + Math.round(limit / 1000) + " seconds.", null));
+      if (controller) controller.abort();
+    }, limit);
+  });
+  var asked = SDK.fetchJSON(API + path, init).catch(function (err) {
     throw parseFailure(err);
   });
+  return Promise.race([asked, waited]).finally(function () {
+    window.clearTimeout(timer);
+  });
+}
+
+// True when a write's failure does not say whether the write happened.
+function unknownOutcome(failure) {
+  if (!failure) return false;
+  if (failure.code === "timeout" || failure.code === "unreachable") return true;
+  return failure.status >= 500 || failure.status === 0;
 }
 
 function query(params) {
@@ -129,13 +155,25 @@ function useRoute() {
 }
 
 // The API has no event stream; only visible tabs poll.
+// A tick is skipped while the read before it is still unanswered, so a slow
+// read is never replaced by its own repeat. `load` may return a promise.
 function usePoll(load, ms, deps) {
   useEffect(function () {
     var stopped = false;
-    function tick() {
-      if (!stopped && document.visibilityState !== "hidden") load();
+    var busy = false;
+    function run() {
+      var pending = load();
+      if (!pending || typeof pending.then !== "function") return;
+      busy = true;
+      var done = function () {
+        busy = false;
+      };
+      pending.then(done, done);
     }
-    load();
+    function tick() {
+      if (!stopped && !busy && document.visibilityState !== "hidden") run();
+    }
+    run();
     var timer = window.setInterval(tick, ms);
     document.addEventListener("visibilitychange", tick);
     return function () {
@@ -314,7 +352,7 @@ function Panel(props) {
           )
         )
       : null,
-    h(C.CardContent, { className: cn("petasos-panel-body", props.bodyClassName) }, props.children)
+    props.bare ? null : h(C.CardContent, { className: cn("petasos-panel-body", props.bodyClassName) }, props.children)
   );
 }
 
@@ -728,6 +766,34 @@ function KeyValues(props) {
         return h(Fragment, { key: row[0] }, h("dt", null, row[0]), h("dd", null, row[1]));
       })
   );
+}
+
+// Hermes's dialogs do not hand focus back. Remember what opened one, and when it
+// closes put focus there, or on `fallback` when that control is gone.
+function useReturnFocus(open, fallback) {
+  var opener = useRef(null);
+  var was = useRef(false);
+  useEffect(
+    function () {
+      if (open) {
+        was.current = true;
+        return;
+      }
+      if (!was.current) return;
+      was.current = false;
+      var target = opener.current;
+      opener.current = null;
+      if (!target || !document.contains(target) || target.disabled) {
+        var id = typeof fallback === "function" ? fallback() : fallback;
+        target = id ? document.getElementById(id) : null;
+      }
+      if (target) target.focus({ preventScroll: true });
+    },
+    [open]
+  );
+  return function remember() {
+    opener.current = document.activeElement;
+  };
 }
 
 // Scrolling the inner container keeps the Hermes page frame stationary.

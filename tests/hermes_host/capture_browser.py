@@ -311,7 +311,7 @@ def _capture_theme(
 
     _open(page, demo, "overview")
     page.locator(_PROTECTED).first.wait_for(timeout=20000)
-    page.locator(".petasos-stat").first.wait_for()
+    page.locator(".petasos-figure").first.wait_for()
     _settle(page, 1500)
     _shot(page, out, f"{prefix}-01-overview-protected", shots)
 
@@ -507,7 +507,7 @@ def followups(request: dict[str, Any]) -> dict[str, Any]:
                 _theme(page, base, label)
                 page.set_viewport_size({"width": width, "height": HEIGHT})
                 _open(page, base, "tryit")
-                page.get_by_role("button", name="Show and edit the input").click()
+                page.get_by_role("button", name="Edit the input").click()
                 page.get_by_role("radio", name="Text", exact=True).click()
                 page.locator("#petasos-try-text").fill(
                     "Please contact someone@example.org about the meeting."
@@ -515,7 +515,10 @@ def followups(request: dict[str, Any]) -> dict[str, Any]:
                 page.get_by_role("button", name=_named("Check"), exact=True).click()
                 preview = page.get_by_label("Text with personal information hidden")
                 preview.wait_for(timeout=20000)
-                page.get_by_role("button", name="Hide the input").click()
+                page.get_by_role("button", name="Hide the editor").click()
+                explain = page.get_by_role("button", name="How conversation risk works")
+                if explain.count():
+                    explain.first.click()
                 _unscroll(page)
                 _settle(page)
                 report["states"].append(
