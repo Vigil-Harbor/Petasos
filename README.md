@@ -36,13 +36,13 @@ That's the base install: lightweight, zero ML dependencies. It includes a syntac
 For deeper protection, add ML scanner backends:
 
 ```bash
-pip install "petasos[all]"           # Presidio, PromptGuard and the console (about 1.2 GiB)
+pip install "petasos[all]"           # Presidio, PromptGuard and the console since 0.5.0 (about 1.2 GiB)
 
 # Or pick what you need:
 pip install "petasos[prompt-guard]"  # Meta's PromptGuard 2 on torch + transformers
 pip install "petasos[presidio]"      # PII detection + anonymization
 
-# Deprecated, removed in a later release:
+# Deprecated in 0.5.0, removed in a later release:
 pip install "petasos[llm-guard]"     # DeBERTa-v3 prompt injection + toxicity
 pip install "petasos[llamafirewall]" # PromptGuard 2 + CodeShield through LlamaFirewall
 ```
@@ -81,7 +81,7 @@ Every message passes through a multi-stage pipeline:
 
 2. **Pattern scan**: A fast syntactic scanner (23 rules, always runs, <5ms) checks for known injection signatures, role-switching attempts, obfuscated destructive commands, agent-directed fetch directives, and structural attacks. This is the safety floor: it runs even if ML backends are unavailable.
 
-3. **ML scan**: ML backends run in parallel. PromptGuard runs Meta's PromptGuard 2 for injection detection. Presidio identifies PII. LLM Guard and LlamaFirewall still work and are deprecated. Each backend is isolated: one failing doesn't take down the others, and the fail mode below decides what its failure means.
+3. **ML scan**: ML backends run in parallel. PromptGuard runs Meta's PromptGuard 2 for injection detection. Presidio identifies PII. LLM Guard and LlamaFirewall still work and are deprecated since 0.5.0. Each backend is isolated: one failing doesn't take down the others, and the fail mode below decides what its failure means.
 
 4. **Merge & decide**: Findings from all scanners are deduplicated (severity-first, confidence breaks ties), and the pipeline decides whether the content is safe. If any ML scanner is down, the fail-mode policy kicks in: `degraded` (default) blocks on partial failure, `closed` blocks on any failure, `open` passes through.
 
@@ -136,7 +136,7 @@ result = await scanner.scan(user_message, direction="inbound")
 <details>
 <summary><strong>LlmGuardScanner</strong> (deprecated): DeBERTa-v3 semantic analysis</summary>
 
-Deprecated: removed in a later release. `PromptGuardScanner` replaces its injection detection only; its other detectors have no replacement yet.
+Deprecated in 0.5.0: removed in a later release. `PromptGuardScanner` replaces its injection detection only; its other detectors have no replacement yet.
 
 Wraps [LLM Guard](https://github.com/protectai/llm-guard) for ML-powered prompt injection, toxicity, ban-topics, invisible text, and secrets detection. Lazy-loads models on first scan.
 
@@ -155,7 +155,7 @@ result = await scanner.scan(user_message, direction="inbound")
 <details>
 <summary><strong>LlamaFirewallScanner</strong> (deprecated): Meta's PromptGuard 2 + CodeShield</summary>
 
-Deprecated: removed in a later release. `PromptGuardScanner` replaces its injection detection only. AlignmentCheck and CodeShield have no replacement in this release.
+Deprecated in 0.5.0: removed in a later release. `PromptGuardScanner` replaces its injection detection only. AlignmentCheck and CodeShield have no replacement in this release.
 
 Wraps [LlamaFirewall](https://github.com/meta-llama/PurpleLlama/tree/main/LlamaFirewall) with per-component attribution. PromptGuard for injection, AlignmentCheck for instruction-following, CodeShield for code safety. Each component is toggled independently: PromptGuard is on by default; AlignmentCheck and CodeShield are opt-in.
 

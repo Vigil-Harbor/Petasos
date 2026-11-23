@@ -87,8 +87,8 @@ that fail. That behaviour is read from the Hermes 0.22.5 source. The first
 gating run is the first time the override is exercised.
 
 One live read belongs to the operator, not to the gate. Run-procedure step 3
-reads the store-Python path from `installs/<key>/facts.json` under the live
-root. The gate never opens that file.
+reads the store-Python path from `tools/facts.json` (`packages.python.entry`)
+under the live root. The gate never opens that file.
 
 ## Secret-free rule
 
@@ -125,10 +125,14 @@ Read the evidence file before committing it.
 1. `git fetch origin` in the Petasos repo. In `../PET-release-0.5.0`, merge
    `origin/master` and push `release/0.5.0`. If the merge conflicts, stop.
 2. Build the wheel from that worktree, for example `python -m build --wheel`.
-3. Read the store-Python path from the live `installs/<key>/facts.json`.
-   Do not hardcode it. Do not use anything else in that file.
-4. Run the gate with a throwaway `--workdir` whose path has no space and no
-   comma. The `python` that runs the driver needs PyJWT and PyYAML, for
+3. Read the store-Python path from the live `tools/facts.json`:
+   `packages.python.entry` names the toolchain directory under `tools/`, and
+   the interpreter is `python.exe` inside it. Do not hardcode it. Do not use
+   anything else in that file.
+4. Run the gate with a throwaway `--workdir` whose path is short and has no
+   space and no comma, for example `C:\pg-gate`. Under `%TEMP%` the isolated
+   root's deepest spaCy module passes Windows' 260-character path limit, and
+   Presidio cannot load (run4). The `python` that runs the driver needs PyJWT and PyYAML, for
    example a venv with `pip install "pyjwt[crypto]" pyyaml` or this
    repo's dev environment. The driver imports `petasos` from its own
    checkout and uses that `PetasosConfig` to decide which live settings
@@ -214,3 +218,35 @@ Both runs used release tree `5549d62` and stopped at stage 1, so `hooks`,
   manifest's requirement now excludes Android.
 - Plane: PET-263.
 - Unholding #209: no-go. The manifest changed, so a new run is needed.
+
+### 2026-11-23, run4: no-go
+
+- Evidence: `windows-5acfbb9-run4.json`, SHA-256
+  `9f668579621d1228bd112e857fd2cbab6fd3327d3e559e3665cb72a65b28da3a`.
+- Verdict: no-go. Every stage ran.
+- Failed checks: `warmup.*`, `health.presidio.*`, `corpus.margin.C06.*`,
+  `corpus.default.C01`, `C03`, `C06`, `C07`, `C08` and the same five for
+  `gibson`, every `load.pre.*`, `cold.presidio_follow`, `negative.block_shown`.
+  `console.semgrep_refusal` passed on every matrix profile.
+- Cause: the run's environment, not the wheel or the plugin. The workdir sat
+  under `%TEMP%`, so the isolated root's deepest spaCy module
+  (`transition_system.cp314-win_amd64.pyd`) had a 256-character path. Windows
+  refused to load it ("The filename or extension is too long"), so Presidio
+  could not import and every Presidio scan errored. The same module sits at
+  201 characters under the live root. Step 4 now asks for a short workdir.
+- Plane: none.
+- Unholding #209: no-go for this run. Nothing in the release changed, so the
+  next run uses the same wheel.
+
+### 2026-11-23, run5: go
+
+- Evidence: `windows-5acfbb9-run5.json`, SHA-256
+  `762a19480e903f5c00f79e73edc4c2ac40fba1ec6bca4ce3e1c63057d0a6a9c9`.
+- Release tree `5acfbb9`, `origin/master` `91428bc`, wheel SHA-256
+  `98cd3c2898d13bbcb1f3326eb9b8914ab4e85f4d035c74e51c332ef6dd086148`, Hermes
+  0.22.5 at `5019bf7`, workdir `C:\pg-gate`.
+- Verdict: go. 477 checks passed, none failed, and every stage (`stage1`,
+  `hooks`, `cold`, `negative`, `dash`) passed. `console.semgrep_refusal`
+  passed on every matrix profile (PET-264).
+- Plane: PET-261, PET-264.
+- Unholding #209: go.
