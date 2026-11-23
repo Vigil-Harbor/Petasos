@@ -6,6 +6,7 @@ import logging
 import os
 import time
 from pathlib import Path
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, NamedTuple
 
 from petasos.guard.guardrail import CheckFailure, recognize
@@ -16,6 +17,8 @@ from petasos.guard.tools import _READ_ONLY_CANON
 _logger = logging.getLogger("petasos.session.guard")
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from petasos.guard.guard import ToolCallGuard
     from petasos.hermes.home import HermesConfigResolution
 
@@ -28,23 +31,13 @@ class _SelfmodMatch(NamedTuple):
 
 # See docs/architecture/rationale.md, "Guard overflow attribution".
 SELFMOD_DEPTH_OVERFLOW_TARGET = "<argument-depth-overflow>"
-# Write-tool parameters that carry file content or prose, not the file written.
-# A protected path in one of them is a reference, not a write.
-_CONTENT_KEYS = frozenset(
+# The parameters of Hermes's write and patch tools that carry file content,
+# not the file written (tools/file_tools.py). A protected path in one of them
+# is a reference, not a write. Any other parameter may name the file written.
+_CONTENT_KEYS: Mapping[str, frozenset[str]] = MappingProxyType(
     {
-        "body",
-        "content",
-        "contents",
-        "data",
-        "description",
-        "diff",
-        "message",
-        "new_string",
-        "new_text",
-        "old_string",
-        "old_text",
-        "patch",
-        "text",
+        "write_file": frozenset({"content"}),
+        "patch": frozenset({"old_string", "new_string", "patch"}),
     }
 )
 
@@ -169,13 +162,14 @@ def _classify_selfmod(
         def _has_sep(s: str) -> bool:
             return "/" in s or "\\" in s or os.sep in s
 
+        content_keys = _CONTENT_KEYS.get(canon_pre_alias, frozenset())
         top_level_strs: list[str] = []
         all_parts: list[str] = []
         for key, value in tool_params.items():
             if value is None:
                 continue
             if isinstance(value, str):
-                if key not in _CONTENT_KEYS:
+                if key not in content_keys:
                     top_level_strs.append(value)
                 all_parts.append(value)
             else:

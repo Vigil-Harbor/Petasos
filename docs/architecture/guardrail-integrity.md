@@ -34,7 +34,9 @@ happened:
   plugin lists, safe mode, the hook timeout, the profile pointer, and the
   commands that change them (`hermes plugins disable|remove|uninstall`,
   `--safe-mode`, `hermes gateway restart`, `hermes config set` on those keys).
-  Enabling the plugin is not a change.
+  Enabling the plugin is not a change, unless the same command grants or
+  revokes its tool-override permission (`--allow-tool-override`,
+  `--no-allow-tool-override`), which Hermes writes into Petasos's entry.
 - The Petasos package itself (uninstalling it, editing its installed files).
 - Hermes's permanent approval list where an entry would pre-approve a Petasos
   rule, and Hermes's approval settings (`approvals`).
@@ -328,9 +330,18 @@ it got in.
     or the path passed to any other call is a change. `hermes` or `petasos`
     with `--help` or `-h` is not a change, unless the command writes
     Hermes's configuration (`hermes config set|unset|edit|migrate`,
-    `hermes import`, `hermes plugins disable petasos` and the other
-    settings commands), which is a change with or without one. A help word
-    after `--` or after a word that starts with `#` is not counted.
+    `hermes import`, `hermes plugins disable petasos`,
+    `hermes plugins enable petasos --allow-tool-override`,
+    `hermes plugins install petasos --enable`,
+    `hermes plugins auto-update on|off`, `hermes plugins pack install` and
+    the other settings commands), which is a change with or without one. A
+    help word after `--` or after a word that starts with `#` is not
+    counted. On a shell line, a word that starts with `#` begins a comment
+    that runs to the end of the line or to the next `;`, `|`, `&`, `(`, `)`
+    or backtick; the words in it are not arguments, flags or help. A `#`
+    inside a word, in quotes, or inside a backtick or `$(...)` substitution
+    does not begin one. A configuration key matches a guarded key only as a
+    whole dotted segment, so `approvals_backup` is not `approvals`.
 
   Reads that are not on the reader list now ask. That includes `sed` and
   `perl` even without `-i`, `awk`, editors (including a read-only `vim -R`),

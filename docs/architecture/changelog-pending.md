@@ -403,10 +403,18 @@ to `petasos.model._TIMEOUT_ERROR_PREFIX`. The ingestion head length moves from
   (Hermes's approval settings, such as `approvals.mode` and
   `approvals.timeout`) as a settings change, as it does
   `command_allowlist`, also when the program word cannot be resolved.
-  `hermes plugins enable petasos` is no longer a change; disable, remove
-  and uninstall still are. A help flag no longer clears a command that
-  writes Hermes's configuration, and a help word after `--` or after a
-  word starting with `#` is not read as help. A write tool whose content
-  field is exactly a protected path is recorded as a reference to it, not
-  as a write; the path parameter still decides what is written. A long
-  chain of wrapper words (`! ! ! ... hermes`) is read in linear time.
+  `hermes plugins enable petasos` is no longer a change, unless it grants
+  or revokes the plugin's tool-override permission; disable, remove and
+  uninstall still are. A help flag no longer clears a command that writes
+  Hermes's configuration, including `hermes plugins auto-update on|off`,
+  `hermes plugins install petasos --enable` and `hermes plugins pack
+  install`, and a help word after `--` or after a word starting with `#`
+  is not read as help. On a shell line, a word starting with `#` begins a
+  comment that runs to the end of the line or the next command separator,
+  unless it is quoted or inside a substitution. A configuration key
+  matches a guarded key only as a whole dotted segment
+  (`approvals_backup` is not `approvals`). When a `write_file` call's
+  `content`, or a `patch` call's `old_string`, `new_string` or `patch`, is
+  exactly a protected path, it is recorded as a reference to it, not as a
+  write; the path parameter still decides what is written. A long chain of
+  wrapper words (`! ! ! ... hermes`) is read in linear time.

@@ -916,7 +916,6 @@ def test_invocation_recognition_leaves_reads_and_unrelated_programs(
     ("command", "kind"),
     [
         ("hermes config set command_allowlist x # --help", "settings"),
-        ("hermes config set command_allowlist x #-h", "settings"),
         ("hermes config set command_allowlist -- --help", "settings"),
         ("hermes config edit --help", "settings"),
         ("hermes config edit -h", "settings"),
@@ -931,6 +930,12 @@ def test_invocation_recognition_leaves_reads_and_unrelated_programs(
         ("ai.hermes plugins disable petasos --help", "plugin"),
         ("python -m hermes_cli.main plugins disable petasos --help", "plugin"),
         ("hermes plugins uninstall petasos -h", "plugin"),
+        ("hermes plugins auto-update on --help", "plugin"),
+        ("hermes plugins autoupdate off -h", "plugin"),
+        ("hermes plugins install petasos --enable --help", "plugin"),
+        ("hermes plugins install petasos --en -h", "plugin"),
+        ("hermes plugins pack install /tmp/pack.yaml --help", "plugin"),
+        ("hermes plugins enable petasos --allow-tool-override --help", "settings"),
     ],
 )
 def test_a_help_flag_does_not_clear_a_configuration_write(
@@ -947,20 +952,83 @@ def test_a_help_flag_does_not_clear_a_configuration_write(
         "hermes plugins update -- --help",
         "petasos config set x # --help",
         "HERMES_HOME=/tmp/other hermes chat # -h",
+        "hermes gateway restart #note --help",
     ],
 )
 def test_a_help_word_after_a_comment_or_operands_is_not_help(tmp_path: Path, command: str) -> None:
     assert _hit(tmp_path, "terminal", {"command": command}) is not None, command
 
 
-def test_naming_the_config_in_written_content_is_not_a_write(tmp_path: Path) -> None:
-    home, *_rest = _home(tmp_path)
-    config = str(home / "config.yaml")
-    for key in ("content", "new_string", "text"):
-        params = {"path": str(tmp_path / "notes.md"), key: config}
-        assert _hit(tmp_path, "write_file", params) is None, key
-    hit = _hit(tmp_path, "write_file", {"path": config, "content": config})
-    assert hit is not None and hit.kind == "settings"
+@pytest.mark.parametrize(
+    "command",
+    [
+        "hermes plugins enable petasos --allow-tool-override",
+        "hermes plugins enable petasos --no-allow-tool-override",
+        "hermes plugins enable --allow-tool petasos",
+        "hermes plugins enable petasos --a",
+        "hermes plugins enable petasos --no-a",
+    ],
+)
+def test_granting_or_revoking_tool_override_on_enable_is_a_change(
+    tmp_path: Path, command: str
+) -> None:
+    hit = _hit(tmp_path, "terminal", {"command": command})
+    assert hit is not None and hit.kind == "settings", command
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "hermes config set approvals_backup example",
+        "hermes config set command_allowlist_backup x",
+        "hermes config unset plugins.enabled_extra",
+        r"hermes config set 'plugins.entries.petasos\.x' y",
+        r"h config set 'plugins.entries.petasos\.x' y",
+    ],
+)
+def test_a_config_key_matches_only_at_a_segment_boundary(tmp_path: Path, command: str) -> None:
+    assert _hit(tmp_path, "terminal", {"command": command}) is None, command
+
+
+@pytest.mark.parametrize(
+    ("command", "kind"),
+    [
+        ("hermes plugins update # note", "plugin"),
+        ("hermes plugins update #note", "plugin"),
+        ("hermes plugins update\t# note", "plugin"),
+        ("echo hi # note\nhermes plugins disable petasos", "plugin"),
+        ("echo hi # note; hermes plugins disable petasos", "plugin"),
+        ("echo hi # note && hermes plugins disable petasos", "plugin"),
+        ("hermes plugins disable a#b petasos", "plugin"),
+        ("hermes plugins disable '#x' petasos", "plugin"),
+        ('hermes plugins disable "# x" petasos', "plugin"),
+        ("hermes plugins disable \\#x petasos", "plugin"),
+        ("hermes plugins disable ''#x petasos", "plugin"),
+        ("echo `hermes plugins disable #x petasos`", "plugin"),
+        ("echo $(hermes plugins disable #x petasos)", "plugin"),
+        ("echo $( (true); hermes plugins disable #x petasos)", "plugin"),
+    ],
+)
+def test_a_shell_comment_runs_to_the_line_end_or_a_separator(
+    tmp_path: Path, command: str, kind: str
+) -> None:
+    hit = _hit(tmp_path, "terminal", {"command": command})
+    assert hit is not None and hit.kind == kind, command
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "hermes approvals suggest --help # --apply",
+        "hermes plugins update kanban # petasos",
+        "hermes config get approvals # hermes config set command_allowlist x",
+        "echo $(true) # hermes config set approvals x",
+        "echo `true` # hermes config set approvals x",
+        "# hermes plugins disable petasos",
+    ],
+)
+def test_words_in_a_shell_comment_are_not_read(tmp_path: Path, command: str) -> None:
+    assert _hit(tmp_path, "terminal", {"command": command}) is None, command
 
 
 @pytest.mark.parametrize(

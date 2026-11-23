@@ -69,6 +69,21 @@ def hermes_surface(paths: Iterable[str], roots: Iterable[str] = ()) -> Guardrail
                 help_clears=False,
             )
         )
+    # Enabling still writes the plugin's entry when it grants or revokes
+    # the tool-override permission (plugins.entries.petasos.allow_tool_override).
+    for flag in _prefixes("--allow-tool-override", "--a") + _prefixes(
+        "--no-allow-tool-override", "--n"
+    ):
+        commands.append(
+            CommandRule(
+                "settings",
+                ("hermes", "plugins", "enable"),
+                "hermes plugins enable --allow-tool-override",
+                name=_PLUGIN,
+                requires_flag=flag,
+                help_clears=False,
+            )
+        )
     commands.append(
         CommandRule(
             "plugin",
@@ -77,6 +92,18 @@ def hermes_surface(paths: Iterable[str], roots: Iterable[str] = ()) -> Guardrail
             name=_PLUGIN,
         )
     )
+    # ``--enable`` adds the installed plugin to Hermes's enabled list.
+    for flag in _prefixes("--enable", "--e"):
+        commands.append(
+            CommandRule(
+                "plugin",
+                ("hermes", "plugins", "install"),
+                "hermes plugins install --enable",
+                name=_PLUGIN,
+                requires_flag=flag,
+                help_clears=False,
+            )
+        )
     # No name updates every installed plugin.
     commands.append(
         CommandRule(
@@ -103,13 +130,16 @@ def hermes_surface(paths: Iterable[str], roots: Iterable[str] = ()) -> Guardrail
                 ("hermes", "plugins", verb),
                 f"hermes plugins {verb}",
                 one_of=("on", "off"),
+                help_clears=False,
             )
         )
+    # A pack may seed plugins.entries for the plugins it installs.
     commands.append(
         CommandRule(
             "plugin",
             ("hermes", "plugins", "pack", "install"),
             "hermes plugins pack install",
+            help_clears=False,
         )
     )
     commands.append(
@@ -248,6 +278,11 @@ def hermes_surface(paths: Iterable[str], roots: Iterable[str] = ()) -> Guardrail
             ),
         ),
     )
+
+
+def _prefixes(flag: str, shortest: str) -> tuple[str, ...]:
+    """``flag`` and each abbreviation argparse accepts for it, from ``shortest`` up."""
+    return tuple(flag[:length] for length in range(len(shortest), len(flag) + 1))
 
 
 def _kind(path: str) -> str:

@@ -205,7 +205,7 @@ def _one_command(
         fallback = unknown and command_rule.unknown_program and command_rule.tail is not None
         if fallback:
             candidate = (command_rule.words[0], *prepared[1:])
-        if _rule_matches(candidate, command_rule, unknown_program=fallback):
+        if _rule_matches(candidate, command_rule):
             return GuardrailHit(command_rule.kind, command_rule.label)
     if helping:
         # Nothing else that changes a guardrail runs, but a redirect still writes.
@@ -247,8 +247,9 @@ def _one_command(
 def _asks_help(argv: tuple[str, ...]) -> bool:
     """True when a help flag comes before ``--`` and before a word that starts with ``#``.
 
-    After ``--`` the word is an operand. A word starting with ``#`` may begin a
-    comment the program never receives, so nothing after it counts.
+    After ``--`` the word is an operand. The parser drops a shell comment, so a
+    word that still starts with ``#`` was quoted or sat inside a substitution,
+    where a shell may still read it as a comment. Nothing after it counts.
     """
     for word in argv[1:]:
         if word == "--" or word.startswith("#"):
@@ -419,9 +420,7 @@ def _c_argument(argv: tuple[str, ...]) -> str | None:
     return None
 
 
-def _rule_matches(
-    argv: tuple[str, ...], rule: CommandRule, *, unknown_program: bool = False
-) -> bool:
+def _rule_matches(argv: tuple[str, ...], rule: CommandRule) -> bool:
     if len(argv) < len(rule.words):
         return False
     for index, expected in enumerate(rule.words):
@@ -436,12 +435,10 @@ def _rule_matches(
         return False
     rest = argv[len(rule.words) :]
     positionals = [word for word in rest if not word.startswith("-")]
-    if rule.tail is not None and (
-        not positionals or not positionals[0].casefold().startswith(rule.tail.casefold())
-    ):
-        return False
-    if unknown_program and rule.tail is not None:
-        key, tail = positionals[0].casefold(), rule.tail.casefold()
+    if rule.tail is not None:
+        # Hermes splits a key at each ``.``: ``approvals_backup`` is another key.
+        key = positionals[0].casefold() if positionals else ""
+        tail = rule.tail.casefold()
         if key != tail and not key.startswith(tail + "."):
             return False
     if rule.one_of:
