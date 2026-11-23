@@ -146,6 +146,13 @@ async def test_flag_abbreviations(
         "hermes config get command_allowlist",
         "hermes config set other_key '[]'",
         "hermes config unset command_allowlist_extra",
+        "hermes config set model.default some-model",
+        "hermes -p work config set other_key 1",
+        "hermes config set petasos_notes hello",
+        "hermes plugins disable other-plugin",
+        "hermes plugins list petasos",
+        "python -m hermes_cli.main config show",
+        "python -m other_cli config set command_allowlist '[]'",
         "hermes approvals test -- echo ok",
         "hermes approvals suggest",
         "hermes approvals suggest --json --days 1",
@@ -330,3 +337,45 @@ def test_config_refs_stay_record_only(
     assert result.selfmod_finding is not None
     assert result.selfmod_finding.rule_id == "petasos.selfmod.config_ref"
     assert plugin._pre_tool_call(tool, args, task_id="reference") is None
+
+
+_VARIANT_COMMANDS = [
+    # Hermes's global options, before the subcommand and after it.
+    "hermes -p work config set command_allowlist '[]'",
+    "hermes --profile work config set command_allowlist '[]'",
+    "hermes --profile=work config unset command_allowlist",
+    "hermes --json config set command_allowlist '[]'",
+    "hermes config -p work set command_allowlist '[]'",
+    "hermes config set -p work command_allowlist '[]'",
+    "hermes -m some-model -p work approvals suggest --apply",
+    "hermes -p work import archive.zip",
+    # Other spellings of the program.
+    "ai.hermes config set command_allowlist '[]'",
+    "/Applications/Hermes.app/Contents/MacOS/ai.hermes config unset command_allowlist",
+    "hermes.exe config set command_allowlist '[]'",
+    "HERMES config set command_allowlist '[]'",
+    "python -m hermes_cli.main config set command_allowlist '[]'",
+    "python3.11 -m hermes_cli config unset command_allowlist",
+    "/opt/venv/bin/python -mhermes_cli.main setup --reset",
+    # Command substitution.
+    "echo `hermes config set command_allowlist '[]'`",
+    "echo $(hermes config set command_allowlist '[]')",
+    # Petasos's own settings and whether Hermes loads it.
+    "hermes config set petasos.tool_guard_enabled false",
+    "hermes config unset petasos",
+    "hermes config set plugins.enabled '[]'",
+    "hermes config set plugins.disabled '[petasos]'",
+    "hermes plugins disable petasos",
+    "hermes -p work plugins uninstall petasos",
+    "hermes plugins remove --yes petasos",
+]
+
+
+@pytest.mark.parametrize("command", _VARIANT_COMMANDS)
+async def test_other_spellings_and_guardrail_keys(guard: ToolCallGuard, command: str) -> None:
+    """A global option, another program name or a wrapper does not hide a config writer."""
+    for wrapped in (command, "cd /tmp && " + command, "sh -c " + shlex.quote(command)):
+        result = await guard.evaluate("terminal", {"command": wrapped}, "variants")
+        assert result.selfmod_finding is not None, wrapped
+        assert result.selfmod_finding.rule_id == _WRITE_RULE
+        assert result.selfmod_target is not None

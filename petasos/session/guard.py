@@ -469,6 +469,85 @@ class _SelfmodMatch(NamedTuple):
 SELFMOD_DEPTH_OVERFLOW_TARGET = "<argument-depth-overflow>"
 
 
+# Hermes's top-level options that take a separate value (``--profile work``),
+# so that value is not read as the subcommand.
+_HERMES_VALUE_OPTIONS = frozenset(
+    {
+        "--profile", "-p", "--config", "--model", "-m", "--provider", "--reasoning",
+        "--toolsets", "-t", "--resume", "-r", "--skills", "-s", "--oneshot", "-z",
+        "--usage-file", "--in", "--cpu-profile",
+    }
+)  # fmt: skip
+_HERMES_PROGRAMS = frozenset({"hermes", "ai.hermes", "hermes.exe", "ai.hermes.exe"})
+_HERMES_MODULES = frozenset({"hermes_cli", "hermes_cli.main"})
+# ``hermes config set|unset`` keys that hold a guardrail: the permanent approval
+# list, Petasos's own settings, and which plugins Hermes loads.
+_HERMES_GUARDRAIL_KEYS = ("command_allowlist", "petasos", "plugins")
+_HERMES_PLUGIN_VERBS = frozenset({"disable", "enable", "remove", "rm", "uninstall"})
+_HERMES_FLAG_ROUTES = (
+    (("approvals", "suggest"), "--apply", 3),
+    (("setup",), "--reset", 5),
+    (("profile", "install"), "--force", 3),
+    (("profile", "update"), "--force-config", 3),
+)
+_SHELL_BREAKS = ";&|()\n"
+
+
+def _hermes_invocation(words: list[str], index: int) -> bool:
+    """Whether the word at ``index`` starts a Hermes command line."""
+    word = words[index].strip("`").replace("\\", "/")
+    if word.rsplit("/", 1)[-1].casefold() in _HERMES_PROGRAMS:
+        return True
+    # ``python -m hermes_cli.main``, also written ``-mhermes_cli.main``.
+    if word in _HERMES_MODULES:
+        return index > 0 and words[index - 1] == "-m"
+    return word.startswith("-m") and word[2:] in _HERMES_MODULES
+
+
+def _hermes_route(args: list[str]) -> str | None:
+    """Name the configuration change one Hermes command line makes, or None.
+
+    Global options are set aside first, so ``hermes -p work config set`` reads
+    as ``config set``; ``-p`` is also accepted after the subcommand.
+    """
+    positionals: list[str] = []
+    options: list[str] = []
+    skip = False
+    for arg in args:
+        arg = arg.strip("`")
+        if skip:
+            skip = False
+        elif arg in _HERMES_VALUE_OPTIONS:
+            skip = True
+        elif arg.startswith("-") and arg != "-":
+            options.append(arg.partition("=")[0])
+        elif arg:
+            positionals.append(arg)
+    head = [word.casefold() for word in positionals[:3]]
+    if head[:2] in (["config", "edit"], ["config", "migrate"]):
+        return "hermes " + " ".join(head[:2])
+    if head[:1] == ["import"]:
+        return "hermes import"
+    if head[:2] in (["config", "set"], ["config", "unset"]) and len(positionals) > 2:
+        key = positionals[2].casefold()
+        for guarded in _HERMES_GUARDRAIL_KEYS:
+            if key == guarded or key.startswith(guarded + "."):
+                return f"hermes config {head[1]} {guarded}"
+    if (
+        head[:1] == ["plugins"]
+        and len(head) > 1
+        and head[1] in _HERMES_PLUGIN_VERBS
+        and any(word.casefold() == "petasos" for word in positionals[2:])
+    ):
+        return f"hermes plugins {head[1]} petasos"
+    for route, flag, minimum in _HERMES_FLAG_ROUTES:
+        if tuple(head[: len(route)]) == route and any(
+            len(option) >= minimum and flag.startswith(option) for option in options
+        ):
+            return "hermes " + " ".join(route) + " " + flag
+    return None
+
+
 def _hermes_config_change(command: str) -> str | None:
     """Conservatively recognise CLI writers without executing or resolving shell text.
 
@@ -483,7 +562,7 @@ def _hermes_config_change(command: str) -> str | None:
         text, depth = pending.pop()
         if depth > 32:
             return "hermes configuration (shell nesting exceeded)"
-        lexer = shlex.shlex(text.replace("\\\n", ""), posix=True, punctuation_chars=";&|()\n")
+        lexer = shlex.shlex(text.replace("\\\n", ""), posix=True, punctuation_chars=_SHELL_BREAKS)
         lexer.whitespace_split = True
         lexer.whitespace = " \t\r"
         lexer.commenters = ""
@@ -493,35 +572,22 @@ def _hermes_config_change(command: str) -> str | None:
             # A partial shell fragment may still occur inside a larger command.
             words = text.split()
         for index, word in enumerate(words):
-            if "hermes" in word and any(char.isspace() for char in word) and word != text:
+            if (
+                "hermes" in word.casefold()
+                and any(char.isspace() for char in word)
+                and word != text
+            ):
                 pending.append((word, depth + 1))
-            if word.replace("\\", "/").rsplit("/", 1)[-1] != "hermes":
+            if not _hermes_invocation(words, index):
                 continue
             tail: list[str] = []
             for arg in words[index + 1 :]:
-                if arg and all(char in ";&|()\n" for char in arg):
+                if arg and all(char in _SHELL_BREAKS for char in arg):
                     break
                 tail.append(arg)
-            if tail[:2] in (["config", "edit"], ["config", "migrate"]):
-                return "hermes " + " ".join(tail[:2])
-            if tail[:1] == ["import"]:
-                return "hermes import"
-            if tail[:2] in (["config", "set"], ["config", "unset"]):
-                key = next((arg for arg in tail[2:] if not arg.startswith("-")), "")
-                if key == "command_allowlist" or key.startswith("command_allowlist."):
-                    return f"hermes config {tail[1]} command_allowlist"
-            for route, flag, minimum in (
-                (["approvals", "suggest"], "--apply", 3),
-                (["setup"], "--reset", 5),
-                (["profile", "install"], "--force", 3),
-                (["profile", "update"], "--force-config", 3),
-            ):
-                if tail[: len(route)] == route and any(
-                    len(option) >= minimum and flag.startswith(option)
-                    for arg in tail[len(route) :]
-                    for option in (arg.partition("=")[0],)
-                ):
-                    return "hermes " + " ".join(route) + " " + flag
+            route = _hermes_route(tail)
+            if route is not None:
+                return route
     return None
 
 
