@@ -759,3 +759,144 @@ def test_permanent_approval_list_changes(tmp_path: Path, command: str) -> None:
 )
 def test_permanent_approval_list_reads(tmp_path: Path, command: str) -> None:
     assert _hit(tmp_path, "terminal", {"command": command}) is None
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "hermes --json config set command_allowlist '[]'",
+        "ai.hermes config set command_allowlist '[]'",
+        "/Applications/Hermes.app/Contents/MacOS/ai.hermes config unset command_allowlist",
+        "hermes.exe config set command_allowlist '[]'",
+        r"C:\Tools\hermes.exe config set command_allowlist '[]'",
+        "python -u -m hermes_cli.main config set command_allowlist x",
+        "python3 -X dev -B -m hermes_cli config unset command_allowlist",
+        "python -um hermes_cli.main config set command_allowlist x",
+        "python -m hermes_cli.main config set command_allowlist '[]'",
+        "python3.11 -m hermes_cli config unset command_allowlist",
+        "/opt/venv/bin/python -mhermes_cli.main setup --reset",
+        "H=hermes; $H config set command_allowlist '[]'",
+        "alias h=hermes; h config set command_allowlist '[]'",
+    ],
+)
+def test_hermes_invocation_spellings_change_settings(tmp_path: Path, command: str) -> None:
+    hit = _hit(tmp_path, "terminal", {"command": command})
+    assert hit is not None and hit.kind == "settings"
+
+
+@pytest.mark.parametrize(
+    ("command", "kind"),
+    [
+        ("python -m hermes_cli.main plugins disable petasos", "plugin"),
+        ("ai.hermes import x.zip", "settings"),
+        ("hermes --json approvals suggest --apply", "settings"),
+    ],
+)
+def test_other_rules_use_hermes_invocation_forms(tmp_path: Path, command: str, kind: str) -> None:
+    hit = _hit(tmp_path, "terminal", {"command": command})
+    assert hit is not None and hit.kind == kind
+
+
+@pytest.mark.parametrize("option", ["--json", "-x", "--flag=value"])
+@pytest.mark.parametrize(
+    ("command", "kind"),
+    [
+        ("config unset command_allowlist", "settings"),
+        ("plugins disable petasos", "plugin"),
+        ("import x.zip", "settings"),
+        ("approvals suggest --apply", "settings"),
+        ("setup --reset", "settings"),
+        ("petasos scanner remove presidio", "settings"),
+    ],
+)
+@pytest.mark.parametrize("launcher", ["hermes", "ai.hermes", "python -m hermes_cli.main"])
+def test_hermes_invocations_reach_command_rules(
+    tmp_path: Path, launcher: str, option: str, command: str, kind: str
+) -> None:
+    hit = _hit(tmp_path, "terminal", {"command": f"{launcher} {option} {command}"})
+    assert hit is not None and hit.kind == kind
+
+
+@pytest.mark.parametrize(
+    "option",
+    [
+        "--profile",
+        "-p",
+        "--config",
+        "--model",
+        "-m",
+        "--provider",
+        "--reasoning",
+        "--toolsets",
+        "-t",
+        "--resume",
+        "-r",
+        "--skills",
+        "-s",
+        "--oneshot",
+        "-z",
+        "--usage-file",
+        "--in",
+        "--cpu-profile",
+    ],
+)
+def test_hermes_global_options_consume_their_values(tmp_path: Path, option: str) -> None:
+    command = f"hermes {option} work config unset command_allowlist"
+    assert _hit(tmp_path, "terminal", {"command": command}) is not None
+    if option not in {"--profile", "-p"}:
+        # A value that happens to be a verb does not become the subcommand.
+        read = f"hermes {option} config set command_allowlist x"
+        assert _hit(tmp_path, "terminal", {"command": read}) is None
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        "command_allowlist",
+        "command_allowlist.0",
+        "plugins.entries.petasos",
+        "plugins.entries.petasos.settings.enabled",
+        "plugins.enabled",
+        "plugins.disabled",
+        "plugins.hook_callback_timeout",
+        "plugins.auto_apply",
+    ],
+)
+@pytest.mark.parametrize("verb", ["set", "unset"])
+def test_unknown_program_only_guards_listed_config_keys(
+    tmp_path: Path, key: str, verb: str
+) -> None:
+    hit = _hit(tmp_path, "terminal", {"command": f"h config {verb} --force {key} x"})
+    assert hit is not None
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "hermes --json config show",
+        "python -m hermes_cli.main config get command_allowlist",
+        "python -m other_cli config set command_allowlist x",
+        "python -mother_cli config set command_allowlist x",
+        "ai.hermes approvals suggest",
+        "git config set core.editor vim",
+        "git config set command_allowlist x",
+        "/usr/bin/git config unset plugins.enabled",
+        "npm config set command_allowlist x",
+        "grep -r 'hermes config set command_allowlist' docs/",
+        "h plugins disable petasos",
+        "h import x.zip",
+        "h setup --reset",
+        "h approvals suggest --apply",
+        "h config edit",
+        "h config set model x",
+        "h config set command_allowlist_backup x",
+        "h config set plugins.entries.petasos_other x",
+        "h config get command_allowlist",
+        "ai.hermes plugins disable petasos --help",
+        "python -m hermes_cli.main plugins disable petasos --help",
+    ],
+)
+def test_invocation_recognition_leaves_reads_and_unrelated_programs(
+    tmp_path: Path, command: str
+) -> None:
+    assert _hit(tmp_path, "terminal", {"command": command}) is None

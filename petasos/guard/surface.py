@@ -48,6 +48,8 @@ class CommandRule:
     one_of: tuple[str, ...] = ()
     requires_flag: str | None = None
     unless_flags: tuple[str, ...] = ()
+    # Also match an unknown program carrying these verbs and a guarded tail.
+    unknown_program: bool = False
 
     def __post_init__(self) -> None:
         if self.kind not in _KINDS:
@@ -81,6 +83,16 @@ class EnvRule:
 
 
 @dataclass(frozen=True, slots=True)
+class CommandProgram:
+    """Host-supplied executable names, Python modules and global value options."""
+
+    name: str
+    aliases: tuple[str, ...] = ()
+    modules: tuple[str, ...] = ()
+    value_options: frozenset[str] = frozenset()
+
+
+@dataclass(frozen=True, slots=True)
 class GuardrailSurface:
     """What the host adds to the library's own recognition.
 
@@ -89,7 +101,8 @@ class GuardrailSurface:
     root is a change when that directory holds a protected path. ``commands``,
     ``flags`` and ``env`` are the host's own command forms. An empty surface
     leaves the library's package files and commands in force, and any
-    protected paths the caller passes are still checked.
+    protected paths the caller passes are still checked. ``programs`` names
+    equivalent invocations and the global options that consume a value.
     """
 
     paths: Mapping[str, frozenset[str]] = field(default_factory=dict)
@@ -98,6 +111,7 @@ class GuardrailSurface:
     flags: tuple[FlagRule, ...] = ()
     env: tuple[EnvRule, ...] = ()
     command_tools: frozenset[str] = field(default_factory=lambda: _COMMAND_TOOLS)
+    programs: tuple[CommandProgram, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 from petasos.guard.bounds import _MAX_CHARS, _MAX_COMMANDS
 from petasos.guard.mutations import (
+    _COPIES,
     _INTERPRETERS,
     _NAME_END,
     _READERS,
@@ -44,6 +45,17 @@ _ALL_NAMES = frozenset({"*", "--all", "-a", "all"})
 _TRUTHY = frozenset({"1", "true", "yes", "on"})
 _MAX_HEREDOCS = 8
 _HEREDOC_OPEN = re.compile(r"""<<-?[ \t]*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\1""")
+# These programs have known meanings here even though they have no command
+# rule. In particular git/npm config writes are not host settings writes.
+_KNOWN_PROGRAMS = (
+    _READERS
+    | _TEXT_ONLY
+    | _INTERPRETERS
+    | _COPIES
+    | _WRAPPERS
+    | _SHELLS
+    | {"python", "eval", "git", "npm", "npx", "pnpm", "yarn", "dd", "mv", "rm", "chmod"}
+)
 
 
 def _command_change(
@@ -161,8 +173,10 @@ def _one_command(
     cwd: str,
     *,
     depth: int,
+    known_program: bool = False,
 ) -> GuardrailHit | None:
     prepared, assignments = _strip_wrappers(command.argv)
+    prepared = _invocation(prepared, surface)
     program = _program(prepared[0]) if prepared else ""
     helping = program in {"hermes", "petasos"} and bool(_HELP_FLAGS.intersection(prepared))
     if not helping:
@@ -176,15 +190,27 @@ def _one_command(
     for flag in surface.flags:
         if program == flag.program.casefold() and _carries(prepared, flag.flag):
             return GuardrailHit(flag.kind, flag.label)
+    rule_argv = _without_global_options(prepared, surface)
+    unknown = (
+        not known_program
+        and program not in _KNOWN_PROGRAMS
+        and _native_shell(prepared[0]) is None
+        and not any(program == rule.words[0].casefold() for rule in rules)
+        and not any(program == flag.program.casefold() for flag in surface.flags)
+    )
     for command_rule in rules:
-        if _rule_matches(prepared, command_rule):
+        candidate = rule_argv
+        fallback = unknown and command_rule.unknown_program and command_rule.tail is not None
+        if fallback:
+            candidate = (command_rule.words[0], *prepared[1:])
+        if _rule_matches(candidate, command_rule, unknown_program=fallback):
             return GuardrailHit(command_rule.kind, command_rule.label)
     exported = _export_hit(prepared, surface)
     if exported is not None:
         return exported
-    module = program == "python" and len(prepared) >= 3 and prepared[1] == "-m"
+    module = _python_module(prepared) if program == "python" else None
     # The word after ``-m`` is a module name, not a file.
-    acted = (prepared[0], *prepared[3:]) if module else prepared
+    acted = (prepared[0], *module[1:]) if module else prepared
     hit = _mutation(acted, command.redirects, owned, env, cwd)
     if hit is not None or depth >= 3:
         return hit
@@ -194,8 +220,10 @@ def _one_command(
         if script is not None:
             found = _judge_code(script, owned, surface, env, cwd)
         if found is None and module:
-            rewritten = _Simple((prepared[2], *prepared[3:]), (), ())
-            found = _one_command(rewritten, owned, surface, rules, env, cwd, depth=depth + 1)
+            rewritten = _Simple(module, (), ())
+            found = _one_command(
+                rewritten, owned, surface, rules, env, cwd, depth=depth + 1, known_program=True
+            )
     elif program in _SHELLS:
         script = _c_argument(prepared)
         if script is not None:
@@ -209,6 +237,63 @@ def _one_command(
     if found is not None or program in _TEXT_ONLY or program in _READERS:
         return found
     return _started(prepared, owned, surface, rules, env, cwd, depth)
+
+
+def _python_module(argv: tuple[str, ...]) -> tuple[str, ...] | None:
+    """The module and its arguments for Python's ``-m``, after any interpreter options.
+
+    ``-m`` may be separate, joined to the module (``-mpkg``) or the last letter
+    of a cluster (``-um pkg``). ``-W`` and ``-X`` take the next word. ``-c``
+    runs code, not a module.
+    """
+    index = 1
+    while index < len(argv):
+        word = argv[index]
+        if not word.startswith("-") or word in ("-", "--") or word.startswith("--"):
+            return None
+        letters = word[1:]
+        if "m" in letters and letters.isalpha():
+            at = letters.index("m")
+            if "c" in letters[:at]:
+                return None
+            joined = letters[at + 1 :]
+            rest = argv[index + 1 :]
+            return (joined, *rest) if joined else (rest or None)
+        if letters.startswith("m"):
+            return (letters[1:], *argv[index + 1 :])
+        if letters.startswith("c"):
+            return None
+        index += 2 if word in ("-W", "-X") else 1
+    return None
+
+
+def _invocation(argv: tuple[str, ...], surface: GuardrailSurface) -> tuple[str, ...]:
+    """Canonicalise only host-declared executable and Python module forms."""
+    if not argv:
+        return argv
+    name = argv[0].replace("\\", "/").rsplit("/", 1)[-1].casefold()
+    module = _python_module(argv) if _program(argv[0]) == "python" else None
+    for program in surface.programs:
+        if name in (program.name, *program.aliases):
+            return (program.name, *argv[1:])
+        if module and module[0] in program.modules:
+            return (program.name, *module[1:])
+    return argv
+
+
+def _without_global_options(argv: tuple[str, ...], surface: GuardrailSurface) -> tuple[str, ...]:
+    """Set aside options between a declared program and its first verb."""
+    for program in surface.programs:
+        if _program(argv[0]) != program.name:
+            continue
+        index = 1
+        while index < len(argv) and argv[index].startswith("-"):
+            word = argv[index]
+            index += 1
+            if word in program.value_options and index < len(argv):
+                index += 1
+        return (argv[0], *argv[index:])
+    return argv
 
 
 def _carries(argv: tuple[str, ...], flag: str) -> bool:
@@ -238,7 +323,14 @@ def _started(
     starters = {rule.words[0].casefold() for rule in rules}
     starters.update(flag.program.casefold() for flag in surface.flags)
     starters.update(_WRAPPERS, _SHELLS, {"python", "eval"})
-    first = next((i for i in range(1, len(argv)) if _program(argv[i]) in starters), None)
+    first = next(
+        (
+            i
+            for i in range(1, len(argv))
+            if _program(_invocation((argv[i],), surface)[0]) in starters
+        ),
+        None,
+    )
     native = next((i for i in range(1, len(argv)) if _native_shell(argv[i]) is not None), None)
     for index in (first, native):
         if index is None:
@@ -308,7 +400,9 @@ def _c_argument(argv: tuple[str, ...]) -> str | None:
     return None
 
 
-def _rule_matches(argv: tuple[str, ...], rule: CommandRule) -> bool:
+def _rule_matches(
+    argv: tuple[str, ...], rule: CommandRule, *, unknown_program: bool = False
+) -> bool:
     if len(argv) < len(rule.words):
         return False
     for index, expected in enumerate(rule.words):
@@ -327,6 +421,10 @@ def _rule_matches(argv: tuple[str, ...], rule: CommandRule) -> bool:
         not positionals or not positionals[0].casefold().startswith(rule.tail.casefold())
     ):
         return False
+    if unknown_program and rule.tail is not None:
+        key, tail = positionals[0].casefold(), rule.tail.casefold()
+        if key != tail and not key.startswith(tail + "."):
+            return False
     if rule.one_of:
         allowed = {item.casefold() for item in rule.one_of}
         if not positionals or positionals[0].casefold() not in allowed:
