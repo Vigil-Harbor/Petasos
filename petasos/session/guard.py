@@ -33,6 +33,7 @@ import logging
 import math
 import os
 import re
+import shlex
 import threading
 import time
 from collections import deque
@@ -468,6 +469,62 @@ class _SelfmodMatch(NamedTuple):
 SELFMOD_DEPTH_OVERFLOW_TARGET = "<argument-depth-overflow>"
 
 
+def _hermes_config_change(command: str) -> str | None:
+    """Conservatively recognise CLI writers without executing or resolving shell text.
+
+    This release has no shell parser. Inspect words at every position (including
+    command chains and environment prefixes), and re-tokenise quoted command
+    strings such as sh -c payloads. This can also flag command text passed as data.
+    It does not resolve executable variables, aliases, or generated command text.
+    Targets describe the operation, never its potentially sensitive value.
+    """
+    pending = [(command, 0)]
+    while pending:
+        text, depth = pending.pop()
+        if depth > 32:
+            return "hermes configuration (shell nesting exceeded)"
+        lexer = shlex.shlex(text.replace("\\\n", ""), posix=True, punctuation_chars=";&|()\n")
+        lexer.whitespace_split = True
+        lexer.whitespace = " \t\r"
+        lexer.commenters = ""
+        try:
+            words = list(lexer)
+        except ValueError:
+            # A partial shell fragment may still occur inside a larger command.
+            words = text.split()
+        for index, word in enumerate(words):
+            if "hermes" in word and any(char.isspace() for char in word) and word != text:
+                pending.append((word, depth + 1))
+            if word.replace("\\", "/").rsplit("/", 1)[-1] != "hermes":
+                continue
+            tail: list[str] = []
+            for arg in words[index + 1 :]:
+                if arg and all(char in ";&|()\n" for char in arg):
+                    break
+                tail.append(arg)
+            if tail[:2] in (["config", "edit"], ["config", "migrate"]):
+                return "hermes " + " ".join(tail[:2])
+            if tail[:1] == ["import"]:
+                return "hermes import"
+            if tail[:2] in (["config", "set"], ["config", "unset"]):
+                key = next((arg for arg in tail[2:] if not arg.startswith("-")), "")
+                if key == "command_allowlist" or key.startswith("command_allowlist."):
+                    return f"hermes config {tail[1]} command_allowlist"
+            for route, flag, minimum in (
+                (["approvals", "suggest"], "--apply", 3),
+                (["setup"], "--reset", 5),
+                (["profile", "install"], "--force", 3),
+                (["profile", "update"], "--force-config", 3),
+            ):
+                if tail[: len(route)] == route and any(
+                    len(option) >= minimum and flag.startswith(option)
+                    for arg in tail[len(route) :]
+                    for option in (arg.partition("=")[0],)
+                ):
+                    return "hermes " + " ".join(route) + " " + flag
+    return None
+
+
 DEFAULT_TOOL_ALIASES: MappingProxyType[str, str] = MappingProxyType(
     {
         "bash": "exec",
@@ -802,6 +859,12 @@ class ToolCallGuard:
         try:
             if canon_pre_alias in _READ_ONLY_CANON:
                 return None
+            if canon_pre_alias in {"terminal", "bash", "shell", "exec"}:
+                command = tool_params.get("command")
+                if isinstance(command, str):
+                    target = _hermes_config_change(command)
+                    if target is not None:
+                        return _SelfmodMatch(rule_id="petasos.selfmod.config_write", target=target)
             owned = self.selfmod_target_paths()
             if not owned:
                 return None
