@@ -500,7 +500,9 @@ def _hermes_invocation(words: list[str], index: int) -> bool:
         return True
     # ``python -m hermes_cli.main``, also written ``-mhermes_cli.main``.
     if word in _HERMES_MODULES:
-        return index > 0 and words[index - 1] == "-m"
+        # ``-m`` alone, or as the last letter of a cluster such as ``-um``.
+        before = words[index - 1] if index > 0 else ""
+        return before.startswith("-") and before.endswith("m") and before[1:].isalpha()
     return word.startswith("-m") and word[2:] in _HERMES_MODULES
 
 

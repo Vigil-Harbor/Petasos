@@ -359,6 +359,9 @@ _VARIANT_COMMANDS = [
     "HERMES config set command_allowlist '[]'",
     "python -m hermes_cli.main config set command_allowlist '[]'",
     "python3.11 -m hermes_cli config unset command_allowlist",
+    "python -u -m hermes_cli.main config set command_allowlist '[]'",
+    "python3 -X dev -B -m hermes_cli config unset command_allowlist",
+    "python -um hermes_cli.main config set command_allowlist '[]'",
     "/opt/venv/bin/python -mhermes_cli.main setup --reset",
     # Command substitution.
     "echo `hermes config set command_allowlist '[]'`",
