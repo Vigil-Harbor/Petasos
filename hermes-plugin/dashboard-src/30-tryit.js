@@ -15,7 +15,14 @@ function inputOf(example) {
 }
 
 function Marked(props) {
-  var text = props.text || "";
+  // Offsets from the API count characters, so the text is cut by code point.
+  var points = Array.from(props.text || "");
+  var text = {
+    length: points.length,
+    slice: function (start, end) {
+      return points.slice(start, end).join("");
+    },
+  };
   var spans = (props.findings || [])
     .map(function (finding, index) {
       return finding.span ? { start: finding.span.start, end: finding.span.end, n: index + 1 } : null;
@@ -69,8 +76,21 @@ function FindingList(props) {
             ? h(
                 "div",
                 { className: "petasos-row-actions" },
-                h(Btn, { outlined: true, onClick: function () { props.onQuiet(finding.rule, finding.sentence); } }, "Try without this rule"),
-                h(LinkButton, { onClick: function () { go("settings", { rule: finding.rule }); } }, "Rule settings")
+                finding.can_turn_off === false
+                  ? h("span", { className: "petasos-secondary" }, "These settings do not let this rule be turned off.")
+                  : h(
+                      Btn,
+                      {
+                        outlined: true,
+                        disabled: !props.canQuiet,
+                        title: props.canQuiet ? undefined : "Not available until the settings load and the trial settings can be read",
+                        onClick: function () {
+                          props.onQuiet(finding.rule, finding.sentence);
+                        },
+                      },
+                      "Try without this rule"
+                    ),
+                h(LinkButton, { onClick: function () { go("settings", { rule: finding.rule, sentence: finding.sentence || "" }); } }, "Rule settings")
               )
             : null
         )
@@ -150,6 +170,36 @@ function lastPart(rule) {
   return text.slice(text.lastIndexOf(".") + 1);
 }
 
+function listOf(value) {
+  return Array.isArray(value) ? value : [];
+}
+
+// What is wrong with trial settings typed as JSON, or "" when they can be used.
+function trialProblem(parsed) {
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return "This needs to be a JSON object, in curly braces.";
+  var rules = parsed.rules;
+  if (rules !== undefined && (!rules || typeof rules !== "object" || Array.isArray(rules))) return "\"rules\" needs to be an object, in curly braces.";
+  if (rules && rules.suppress !== undefined) {
+    var list = rules.suppress;
+    var strings =
+      Array.isArray(list) &&
+      list.every(function (item) {
+        return typeof item === "string";
+      });
+    if (!strings) return "\"rules.suppress\" needs to be a list of rule ids, in square brackets.";
+  }
+  return "";
+}
+
+// What one run can say about its matches, given whether it finished and whether its list was cut.
+function matchWords(run) {
+  var count = (run.findings || []).length;
+  if (run.timed_out) return count ? plural(count, "match", "matches") + " before the check ran out of time; there may be more" : "no match before the check ran out of time";
+  if (run.checks_incomplete) return count ? plural(count, "match", "matches") + " from the checks that finished; a check reported an error" : "no match from the checks that finished; a check reported an error";
+  if (run.findings_omitted) return count + " matches listed and " + run.findings_omitted + " more not listed";
+  return count ? plural(count, "match", "matches") : "no rule matched";
+}
+
 function trialNames(candidate, catalog) {
   if (!candidate) return [];
   var byPath = rowsByPath(catalog && catalog.settings);
@@ -158,7 +208,7 @@ function trialNames(candidate, catalog) {
   if (candidate.level) names.push(levelLabel(catalog, candidate.level) + " strictness");
   var overrides = candidate.overrides || {};
   var saved = (byPath["rules.suppress"] || {}).value || [];
-  var quieted = (getIn(overrides, "rules.suppress") || []).filter(function (rule) {
+  var quieted = listOf(getIn(overrides, "rules.suppress")).filter(function (rule) {
     return saved.indexOf(rule) < 0;
   });
   if (quieted.length) {
@@ -236,6 +286,13 @@ function TryIt(props) {
   var sentencesState = useState({});
   var focusState = useState(params.rule ? { rule: params.rule, sentence: params.sentence || "" } : null);
   var focus = focusState[0];
+  var beginRun = useLatest();
+  var examplesFailureState = useState(null);
+  var examplesRetryState = useState(0);
+  var copyState = useState(null);
+  var announceState = useState("");
+  var showResult = useRef(false);
+  var rememberCopyOpener = useReturnFocus(Boolean(copyState[0]), "petasos-try-copy");
 
   function current() {
     return { mode: mode, text: textState[0], direction: directionState[0], tool: toolState[0], args: argsState[0] };
@@ -256,6 +313,7 @@ function TryIt(props) {
   }
 
   useEffect(function () {
+    examplesFailureState[1](null);
     call("/playground/examples")
       .then(function (body) {
         var list = body.examples || [];
@@ -274,9 +332,9 @@ function TryIt(props) {
       })
       .catch(function (failure) {
         examplesState[1]([]);
-        failureState[1](failure);
+        examplesFailureState[1](failure);
       });
-  }, []);
+  }, [examplesRetryState[0]]);
 
   function body(input) {
     if (input.mode === "text") {
@@ -294,13 +352,43 @@ function TryIt(props) {
     return { tool: String(input.tool || "").trim(), arguments: parsed };
   }
 
+  // A result belongs to the input, the trial settings, and the saved settings and protection state it ran under.
+  // An unconfirmed or unread change counts: a result from before it describes settings that may be gone.
+  var statusNow = props.status || {};
+  var savedStamp = JSON.stringify([
+    catalog && catalog.stored,
+    Boolean(statusNow.paused),
+    statusNow.protection,
+    statusNow.role,
+    statusNow.level,
+    Boolean(props.pending),
+    Boolean(props.stale),
+    Boolean(props.saving),
+    // A check that started or stopped working, or a status that could not be re-read, also dates a result.
+    (statusNow.scanners || []).map(function (row) {
+      return row.id + ":" + ((row.operating && row.operating.code) || "");
+    }),
+    props.detailsCurrent === false,
+  ]);
+  // Only what the request carries: fields of the editor that is not in use do not make a result stale.
   function signature(input, using) {
-    return JSON.stringify([input.mode, input.text, input.direction, input.tool, input.args, using || null]);
+    var sent = input.mode === "text" ? ["text", input.text, input.direction] : ["tool", String(input.tool || "").trim(), input.args];
+    return JSON.stringify([sent, using || null, savedStamp]);
   }
 
   function run(nextCandidate, given) {
-    var using = nextCandidate === undefined ? candidate : nextCandidate;
+    var using = nextCandidate === undefined ? (trialOpenState[0] ? candidate : null) : nextCandidate;
     var input = given || current();
+    // With Trial settings chosen and its editor unreadable, nothing runs: not the last trial that parsed, and not a live check passed off as the trial.
+    if (trialOpenState[0] && advancedErrorState[0] && nextCandidate === undefined) {
+      beginRun();
+      runningState[1](false);
+      resultState[1](null);
+      baselineState[1](null);
+      failureState[1](null);
+      announceState[1]("Not checked: the trial settings cannot be read.");
+      return;
+    }
     var request;
     try {
       request = body(input);
@@ -316,27 +404,52 @@ function TryIt(props) {
     var jobs = [call("/playground", { method: "POST", body: withSettings })];
     if (using) jobs.push(call("/playground", { method: "POST", body: request }));
     var stamp = signature(input, using);
+    var latest = beginRun();
     Promise.all(jobs)
       .then(function (answers) {
+        if (!latest()) return;
         resultState[1](answers[0]);
         baselineState[1](answers[1] || null);
-        ranState[1]({ text: checked, mode: input.mode, signature: stamp });
+        ranState[1]({ text: checked, mode: input.mode, signature: stamp, trial: Boolean(using) });
+        var outcome = answers[0].outcome || {};
+        announceState[1]((using ? "Trial result: " : "Result: ") + (outcome.label || "") + ". " + (outcome.sentence || ""));
+        if (readStart().begun) writeStart({ tried: true });
       })
       .catch(function (failure) {
+        if (!latest()) return;
         failureState[1](failure);
         resultState[1](null);
+        baselineState[1](null);
+        announceState[1]("Petasos could not check this. " + (failure.message || ""));
       })
       .finally(function () {
-        runningState[1](false);
+        if (latest()) runningState[1](false);
       });
   }
 
+  // A check the person asked for brings its result into view when the result sits below the input.
+  function check() {
+    showResult.current = true;
+    run();
+  }
+  useEffect(
+    function () {
+      if (!showResult.current || runningState[0]) return;
+      showResult.current = false;
+      var panel = document.getElementById("petasos-try-result");
+      if (panel && window.innerWidth <= 1100) revealInView(panel, "start");
+    },
+    [resultState[0], failureState[0], runningState[0]]
+  );
+
   function suppressed() {
     var overrides = (candidate && candidate.overrides) || {};
-    return (overrides.rules && overrides.rules.suppress) || null;
+    return overrides.rules && Array.isArray(overrides.rules.suppress) ? overrides.rules.suppress : null;
   }
 
   function quiet(rule, sentence) {
+    // Nothing is built on trial settings that cannot be read; the editor keeps what was typed.
+    if (trialOpenState[0] && advancedErrorState[0]) return;
     if (sentence) {
       var known = Object.assign({}, sentencesState[0]);
       known[rule] = sentence;
@@ -346,7 +459,7 @@ function TryIt(props) {
     var overrides = clone(next.overrides || {});
     overrides.rules = overrides.rules || {};
     var saved = rowsByPath(catalog && catalog.settings)["rules.suppress"];
-    var list = (overrides.rules.suppress || (saved && saved.value) || []).slice();
+    var list = (Array.isArray(overrides.rules.suppress) ? overrides.rules.suppress : listOf(saved && saved.value)).slice();
     if (list.indexOf(rule) < 0) list.push(rule);
     overrides.rules.suppress = list;
     next.overrides = overrides;
@@ -358,7 +471,7 @@ function TryIt(props) {
 
   function unquiet(rule) {
     var next = clone(candidate || {});
-    var list = ((next.overrides && next.overrides.rules && next.overrides.rules.suppress) || []).filter(function (item) {
+    var list = listOf(next.overrides && next.overrides.rules && next.overrides.rules.suppress).filter(function (item) {
       return item !== rule;
     });
     var saved = rowsByPath(catalog && catalog.settings)["rules.suppress"];
@@ -381,12 +494,45 @@ function TryIt(props) {
   var result = resultState[0];
   var baseline = baselineState[0];
   var ran = ranState[0];
-  var stale = Boolean(result && ran && ran.signature !== signature(current(), candidate));
+  // The trial is kept while Live settings is chosen; it only takes part when Trial settings is.
+  var trialOn = trialOpenState[0];
+  var active = trialOn ? candidate : null;
+  var trialInvalid = trialOn && Boolean(advancedErrorState[0]);
+  var stale = Boolean(result && ran && (trialInvalid || ran.signature !== signature(current(), active)));
 
-  var trial = trialNames(candidate, catalog);
+  var trial = trialNames(active, catalog);
   var chosen = exampleIn(examples, exampleState[0]);
   var running = runningState[0];
-  var checkLabel = running ? "Checking…" : candidate ? "Check with trial settings" : "Check";
+  var checkLabel = running ? "Checking…" : active ? "Check with trial settings" : "Check";
+  var preview = (function () {
+    var now = current();
+    var text = "";
+    var tool = "";
+    if (now.mode === "text") text = now.text;
+    else {
+      tool = String(now.tool || "").trim();
+      try {
+        text = argumentText(JSON.parse(now.args || "{}"));
+      } catch (_e) {
+        text = "";
+      }
+    }
+    return { text: text, tool: tool, marked: Boolean(result && ran && !stale && ran.text === text) };
+  })();
+  var checkRow = h(
+    Fragment,
+    null,
+    h(
+      "div",
+      { className: "petasos-row-actions" },
+      h(Btn, { onClick: check, disabled: running || trialInvalid }, checkLabel),
+      checkNote ? h("p", { className: "petasos-secondary petasos-check-note" }, checkNote) : null
+    ),
+    trialInvalid ? h("p", { className: "petasos-secondary" }, "Fix the trial settings above to check with them.") : null,
+    trial.length && !trialInvalid
+      ? h("p", { className: "petasos-trial-line" }, h("strong", null, "Trying: "), trial.join(", ") + ". Not saved.")
+      : null
+  );
   var input = h(
     Panel,
     {
@@ -419,12 +565,42 @@ function TryIt(props) {
             run(undefined, Object.assign({ text: "", direction: "inbound", tool: "", args: "{}" }, inputOf(example)));
           },
         }),
+    examplesFailureState[0] && !focus
+      ? h(
+          Notice,
+          {
+            tone: "destructive",
+            title: "The examples could not be loaded",
+            action: h(Btn, { onClick: function () { examplesRetryState[1](examplesRetryState[0] + 1); } }, "Try again"),
+          },
+          examplesFailureState[0].message + " You can still type your own input under Edit the input."
+        )
+      : null,
     chosen && chosen.description && !focus ? h("p", { className: "petasos-try-desc" }, chosen.description) : null,
+    preview.text
+      ? h(
+          "div",
+          { className: "petasos-try-preview" },
+          h(
+            "p",
+            { className: "petasos-label", id: "petasos-try-preview-label" },
+            "What gets checked"
+          ),
+          preview.tool
+            ? h("p", { className: "petasos-secondary" }, "The text the agent passes to the ", h(Mono, null, preview.tool), " tool.")
+            : null,
+          h(Marked, {
+            text: preview.text,
+            findings: preview.marked ? result.findings : [],
+            label: preview.marked ? "The checked input with matches marked" : "The input",
+          })
+        )
+      : null,
     h(
       Disclosure,
       {
-        label: "Show and edit the input",
-        openLabel: "Hide the input",
+        label: "Edit the input",
+        openLabel: "Hide the editor",
         remember: focus ? undefined : "tryit-input",
         defaultOpen: Boolean(focus),
       },
@@ -505,36 +681,52 @@ function TryIt(props) {
     inputErrorState[0] ? h("p", { className: "petasos-field-error", role: "alert" }, inputErrorState[0]) : null,
     h(
       "div",
-      { className: "petasos-row-actions" },
-      h(Btn, { onClick: function () { run(); }, disabled: running }, checkLabel),
-      checkNote ? h("p", { className: "petasos-secondary petasos-check-note" }, checkNote) : null,
-      h(
-        Btn,
-        {
-          ghost: true,
-          "aria-expanded": trialOpenState[0],
-          "aria-controls": "petasos-trial",
-          onClick: function () {
-            trialOpenState[1](!trialOpenState[0]);
-          },
+      { className: "petasos-filter-group petasos-try-using" },
+      h("span", { className: "petasos-filter-label", id: "petasos-try-using-label" }, "Check with"),
+      h(Segmented, {
+        id: "petasos-try-using",
+        labelledBy: "petasos-try-using-label",
+        value: trialOn ? "trial" : "live",
+        options: [
+          { value: "live", label: "Live settings" },
+          { value: "trial", label: "Trial settings" },
+        ],
+        onChange: function (value) {
+          if (value === "trial") {
+            trialOpenState[1](true);
+            return;
+          }
+          trialOpenState[1](false);
+          if (!candidate) return;
+          beginRun();
+          runningState[1](false);
+          // The live result for the same input was already computed beside the trial.
+          var live = baselineState[0];
+          var same = ran && !trialInvalid && ran.signature === signature(current(), candidate);
+          if (live && same) {
+            resultState[1](live);
+            ranState[1](Object.assign({}, ran, { signature: signature(current(), null), trial: false }));
+            announceState[1]("Showing the result with live settings: " + ((live.outcome && live.outcome.label) || "") + ".");
+          } else {
+            resultState[1](null);
+          }
+          baselineState[1](null);
         },
-        trialOpenState[0] ? "Hide trial settings" : "Change trial settings"
-      )
+      })
     ),
-    trial.length
-      ? h("p", { className: "petasos-trial-line" }, h("strong", null, "Trying: "), trial.join(", ") + ". Not saved.")
-      : null
+    trialOn ? null : checkRow
   );
 
   var output;
-  var checksPanel = null;
+  var live = h("p", { className: "sr-only", role: "status", "aria-live": "polite" }, announceState[0]);
   if (failureState[0]) {
     var failure = failureState[0];
     var byPath = rowsByPath(catalog && catalog.settings);
-    var failedPath = failure.path ? String(failure.path).replace(/^overrides\./, "") : "";
+    var failedPath = failure.path ? String(failure.path).replace(/^overrides\./, "").replace(/\[\d+\]$/, "") : "";
     output = h(
       Panel,
-      { title: "Result" },
+      { title: "Result", id: "petasos-try-result" },
+      live,
       h(
         Notice,
         {
@@ -548,21 +740,46 @@ function TryIt(props) {
   } else if (!result) {
     output = h(
       Panel,
-      { title: "Result" },
-      h("p", { className: "petasos-help", role: "status" }, running ? "Checking…" : focus ? "Paste the text, then press Check." : "Press Check to see what Petasos would do.")
+      { title: "Result", id: "petasos-try-result" },
+      live,
+      h(
+        "p",
+        { className: "petasos-help" },
+        running
+          ? "Checking…"
+          : trialInvalid
+            ? "Not checked. Fix the trial settings, then press Check."
+            : focus
+              ? "Paste the text, then press Check."
+              : "Press Check to see what Petasos would do."
+      )
     );
   } else {
+    // A run that ran out of time, or in which a check reported an error, cannot prove an absence.
+    var cut = Boolean(result.timed_out);
+    var incomplete = cut || Boolean(result.checks_incomplete);
+    var why = cut ? "The check ran out of time" : "A check reported an error";
     var ruleSeen = focus
       ? (result.findings || []).some(function (finding) {
           return finding.rule === focus.rule;
         })
       : null;
+    var focusLine = null;
+    if (focus && ruleSeen) focusLine = "This rule matched.";
+    else if (focus && incomplete) focusLine = why + ", so this run cannot say whether this rule matches.";
+    else if (focus && result.findings_omitted) focusLine = "Not every match is listed, so this run cannot say whether this rule matched.";
+    else if (focus) focusLine = "This rule did not match this text.";
+    var trialPaused = Boolean(active && active.enabled === false);
+    var sameWords = baseline && result.outcome.sentence === baseline.outcome.sentence;
     output = h(
       Panel,
-      { title: baseline ? "Trial result" : "Result", className: "petasos-result" },
-      result.paused_note ? h(Notice, { tone: "warning", title: "Protection is paused" }, result.paused_note) : null,
+      { title: ran && ran.trial ? "Trial result" : "Result", className: "petasos-result", id: "petasos-try-result" },
+      live,
+      result.paused_note && !baseline
+        ? h(Notice, { tone: "warning", title: trialPaused ? "Protection is paused in these trial settings" : "Protection is paused" }, result.paused_note)
+        : null,
       stale
-        ? h(Notice, { tone: "info", title: "Out of date" }, "The input or the trial settings changed since this check.")
+        ? h(Notice, { tone: "info", title: "Out of date" }, "The input, the trial settings or the saved settings changed since this check. Press Check to run it again.")
         : null,
       baseline
         ? h(
@@ -570,40 +787,82 @@ function TryIt(props) {
             { className: "petasos-compare", role: "group", "aria-label": "Trial and live results" },
             h(
               "div",
-              { className: "petasos-compare-cell" },
+              { className: "petasos-compare-cell", "data-petasos-run": "trial" },
               h("p", { className: "petasos-label" }, "With trial settings (not saved)"),
-              h(Status, { tone: outcomeTone(result.outcome.code), large: true, state: result.outcome.code }, "Trial: " + (result.outcome.label || "")),
-              h("p", { className: "petasos-decision-text" }, result.outcome.sentence)
+              h(Status, { tone: outcomeTone(result.outcome.code), large: true, state: result.outcome.code }, result.outcome.label || ""),
+              sameWords ? null : h("p", { className: "petasos-decision-text" }, result.outcome.sentence),
+              h("p", { className: "petasos-compare-note" }, sentenceCase(matchWords(result)) + "."),
+              result.paused_note ? h("p", { className: "petasos-compare-note" }, "Protection is paused in the trial settings. " + result.paused_note) : null
             ),
             h(
               "div",
-              { className: "petasos-compare-cell" },
+              { className: "petasos-compare-cell", "data-petasos-run": "live" },
               h("p", { className: "petasos-label" }, "With your live settings"),
-              h(Status, { tone: outcomeTone(baseline.outcome.code), large: true, state: baseline.outcome.code }, "Live: " + (baseline.outcome.label || "")),
-              h("p", { className: "petasos-decision-text" }, baseline.outcome.sentence)
+              h(Status, { tone: outcomeTone(baseline.outcome.code), large: true, state: baseline.outcome.code }, baseline.outcome.label || ""),
+              sameWords ? null : h("p", { className: "petasos-decision-text" }, baseline.outcome.sentence),
+              h(
+                "p",
+                { className: "petasos-compare-note" },
+                sentenceCase(matchWords(baseline)) +
+                  ((baseline.findings || []).length
+                    ? ": " +
+                      baseline.findings
+                        .map(function (finding) {
+                          return finding.sentence;
+                        })
+                        .join(" ")
+                    : ".")
+              ),
+              baseline.paused_note ? h("p", { className: "petasos-compare-note" }, "Protection is paused now. " + baseline.paused_note) : null
             )
           )
         : h(OutcomeHead, { outcome: result.outcome }),
-      focus ? h("p", { className: "petasos-strong" }, ruleSeen ? "This rule matched." : "This rule did not match this text.") : null,
+      baseline && sameWords ? h("p", { className: "petasos-decision-text" }, "Both: " + result.outcome.sentence) : null,
+      incomplete || (baseline && (baseline.timed_out || baseline.checks_incomplete))
+        ? h(
+            Notice,
+            { tone: "warning", title: "This result is incomplete" },
+            (incomplete && baseline && (baseline.timed_out || baseline.checks_incomplete)
+              ? "Neither run completed every check"
+              : incomplete
+                ? baseline
+                  ? why + " in the run with trial settings"
+                  : why
+                : "The run with your live settings did not complete every check") +
+              ", so matches may be missing. “Checks in this run” shows which checks are confirmed."
+          )
+        : null,
+      focusLine ? h("p", { className: "petasos-strong" }, focusLine) : null,
       (result.findings || []).length
         ? h(
             Fragment,
             null,
-            h("h4", { className: "petasos-subhead" }, "Where it matched"),
-            ran && ran.text
-              ? h(Marked, { text: ran.text, findings: result.findings, label: "The checked input with matches marked" })
-              : null,
-            h(FindingList, { findings: result.findings, onQuiet: quiet }),
+            h("h4", { className: "petasos-subhead" }, baseline ? "What matched with the trial settings" : "What matched"),
+            h(FindingList, { findings: result.findings, onQuiet: quiet, canQuiet: Boolean(catalog) && !trialInvalid }),
             result.findings_omitted ? h("p", { className: "petasos-secondary" }, plural(result.findings_omitted, "more match", "more matches") + " not shown.") : null
           )
-        : h("p", { className: "petasos-secondary" }, "Nothing in this input matched a rule."),
+        : h(
+            "p",
+            { className: "petasos-secondary" },
+            incomplete
+              ? "No match was found, but the result is incomplete: " + why.charAt(0).toLowerCase() + why.slice(1) + "."
+              : baseline
+                ? "Nothing in this input matched a rule with the trial settings."
+                : "Nothing in this input matched a rule."
+          ),
       h("h4", { className: "petasos-subhead" }, "Personal information"),
       h("p", { className: "petasos-secondary" }, result.anonymization.sentence),
       result.anonymized && result.anonymized.trim() ? h("pre", { className: "petasos-message", "aria-label": "Text with personal information hidden" }, result.anonymized) : null,
       h("h4", { className: "petasos-subhead" }, "Conversation risk"),
       h("p", null, result.risk.sentence),
-      h("p", { className: "petasos-secondary" }, result.risk.threshold_sentence),
-      h("p", { className: "petasos-help" }, result.risk.note),
+      h(
+        Disclosure,
+        { label: "How conversation risk works", openLabel: "Hide how conversation risk works" },
+        h("p", { className: "petasos-secondary" }, result.risk.threshold_sentence),
+        h("p", { className: "petasos-secondary" }, result.risk.note)
+      ),
+      h("h4", { className: "petasos-subhead" }, "Checks in this run"),
+      h(ScannerTakePart, { scanners: result.scanners }),
       h(
         Disclosure,
         { label: "Technical detail", openLabel: "Hide technical detail", remember: "tryit-technical" },
@@ -627,11 +886,6 @@ function TryIt(props) {
           : null
       )
     );
-    checksPanel = h(
-      Panel,
-      { title: "Checks in this run", className: "petasos-checks-run" },
-      h(ScannerTakePart, { scanners: result.scanners })
-    );
   }
 
   var quieted = suppressed() || [];
@@ -640,15 +894,43 @@ function TryIt(props) {
     return savedSuppress.indexOf(rule) < 0;
   });
   var sentences = sentencesState[0];
-  var trialPanel = trialOpenState[0]
+  var trialPanel = trialOn
     ? h(
         Panel,
         {
           id: "petasos-trial",
           title: "Trial settings",
-          description: "For Try it only. Nothing is saved.",
-          actions: candidate ? h(Btn, { ghost: true, onClick: function () { setCandidate(null); advancedState[1](""); baselineState[1](null); } }, "Use live settings") : null,
+          description: "For Try it only. Nothing is saved. Choosing Live settings keeps this trial for later.",
+          actions: candidate || advancedState[0]
+            ? h(
+                Btn,
+                {
+                  ghost: true,
+                  onClick: function () {
+                    beginRun();
+                    runningState[1](false);
+                    setCandidate(null);
+                    advancedState[1]("");
+                    advancedErrorState[1]("");
+                    baselineState[1](null);
+                    resultState[1](null);
+                  },
+                },
+                "Clear trial"
+              )
+            : null,
         },
+        !catalog && props.catalogFailure
+          ? h(
+              Notice,
+              {
+                tone: "destructive",
+                title: "The saved settings could not be loaded",
+                action: h(Btn, { onClick: props.onRetryCatalog }, "Try again"),
+              },
+              "The job, the strictness and the rules already turned off are unknown until they load, so a trial cannot be built on them."
+            )
+          : null,
         catalog
           ? h(
               "div",
@@ -722,7 +1004,8 @@ function TryIt(props) {
             id: "petasos-try-overrides",
             className: "petasos-textarea petasos-mono-area",
             rows: 7,
-            "aria-describedby": "petasos-try-overrides-help",
+            "aria-invalid": advancedErrorState[0] ? "true" : undefined,
+            "aria-describedby": "petasos-try-overrides-help" + (advancedErrorState[0] ? " petasos-try-overrides-error" : ""),
             placeholder: '{"rules": {"confidence_floor": 0.8}}',
             value: advancedState[0],
             onChange: function (e) {
@@ -733,16 +1016,24 @@ function TryIt(props) {
                 advancedErrorState[1]("");
                 return;
               }
+              var parsed;
               try {
-                updateCandidate({ overrides: JSON.parse(text) });
-                advancedErrorState[1]("");
+                parsed = JSON.parse(text);
               } catch (_e) {
-                advancedErrorState[1]("This needs to be JSON, in curly braces.");
+                parsed = undefined;
               }
+              var wrong = parsed === undefined ? "This is not valid JSON yet." : trialProblem(parsed);
+              if (wrong) {
+                advancedErrorState[1](wrong + " Until it is fixed, nothing is checked or copied with these trial settings.");
+                return;
+              }
+              updateCandidate({ overrides: parsed });
+              advancedErrorState[1]("");
             },
           }),
-          advancedErrorState[0] ? h("p", { className: "petasos-field-error", role: "alert" }, advancedErrorState[0]) : null
+          advancedErrorState[0] ? h("p", { className: "petasos-field-error", id: "petasos-try-overrides-error", role: "alert" }, advancedErrorState[0]) : null
         ),
+        checkRow,
         candidate
           ? h(
               "div",
@@ -751,24 +1042,68 @@ function TryIt(props) {
                 Btn,
                 {
                   outlined: true,
+                  id: "petasos-try-copy",
+                  disabled: trialInvalid,
                   onClick: function () {
+                    var clash = draftConflicts(props.draft, candidate, knownPaths(catalog && catalog.settings));
+                    if (clash.length) {
+                      rememberCopyOpener();
+                      copyState[1](clash);
+                      return;
+                    }
                     props.onStage(candidate);
                     go("settings", { review: "1" });
                   },
                 },
                 "Copy to Settings"
               ),
-              h("span", { className: "petasos-secondary" }, "Not saved until you press Save there.")
+              h(
+                "span",
+                { className: "petasos-secondary" },
+                draftIsEmpty(props.draft)
+                  ? "Nothing is saved until you press Save there."
+                  : "Copying adds this trial to the unsaved changes already in Settings. Nothing is saved until you press Save there."
+              )
             )
           : null
       )
     : null;
 
+  var clashes = copyState[0] || [];
+  var settingRows = rowsByPath(catalog && catalog.settings);
+  var settingLabels = (catalog && catalog.labels) || {};
   return h(
     "div",
     { className: "petasos-stack" },
-    h("div", { className: "petasos-split petasos-split-try" }, h("div", null, input), h("div", null, output)),
-    trialPanel,
-    checksPanel
+    h(
+      "div",
+      { className: "petasos-split petasos-split-try" },
+      h("div", { className: "petasos-stack" }, input, trialPanel),
+      h("div", null, output)
+    ),
+    h(C.ConfirmDialog, {
+      open: clashes.length > 0,
+      title: "Replace unsaved changes in Settings?",
+      description:
+        "Settings already has a different unsaved value for: " +
+        clashes
+          .map(function (path) {
+            return settingLabels[path] || rowLabel(settingRows[path] || { path: path });
+          })
+          .join(", ") +
+        ". Copying replaces " +
+        (clashes.length === 1 ? "it" : "them") +
+        " with the trial's value. Your other unsaved changes are kept.",
+      confirmLabel: "Replace and copy",
+      cancelLabel: "Keep mine",
+      onCancel: function () {
+        copyState[1](null);
+      },
+      onConfirm: function () {
+        copyState[1](null);
+        props.onStage(candidate);
+        go("settings", { review: "1" });
+      },
+    })
   );
 }

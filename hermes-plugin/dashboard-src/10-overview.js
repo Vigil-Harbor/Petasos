@@ -142,11 +142,9 @@ function CoverageRows(props) {
     return row.name || row.label;
   }
   var running = coverage.running.map(named);
-  var missing = coverage.missing
-    .filter(function (row) {
-      return !row.held;
-    })
-    .map(named);
+  var missing = coverage.missing.filter(function (row) {
+    return !row.held;
+  });
   var rows = [];
   if (!paused && status.scope) rows.push(["Covers", status.scope]);
   if (paused) {
@@ -159,21 +157,15 @@ function CoverageRows(props) {
         h("span", { className: "petasos-secondary" }, ". They resume when protection is turned back on.")
       ),
     ]);
-  } else {
-    rows.push(["Running", running.length ? joinWords(running) : "Nothing"]);
+  } else if (missing.length) {
     rows.push([
       "Not running",
-      missing.length
-        ? h(
-            "span",
-            null,
-            joinWords(missing),
-            " · ",
-            h(LinkButton, { onClick: props.onShowChecks }, "What these add")
-          )
-        : coverage.missing.length
-          ? "Only the check above."
-          : "Nothing. Every check is running.",
+      h(
+        "span",
+        null,
+        plural(missing.length, "optional check") + " · ",
+        h(LinkButton, { onClick: props.onShowChecks }, missing.length === 1 ? "What it adds" : "What these add")
+      ),
     ]);
   }
   return h(KeyValues, { className: "petasos-coverage", rows: rows });
@@ -216,20 +208,52 @@ function HeldFix(props) {
 
 function VerdictPanel(props) {
   var status = props.status;
-  var verdict = verdictOf(status);
-  var paused = verdict.code === "paused";
-  var canPause = verdict.code === "protected" || verdict.code === "warn" || verdict.code === "held";
+  var verdict = props.verdict;
+  // While another write is in flight the control stays where it was, disabled.
+  var code = verdict.was || verdict.code;
+  var paused = code === "paused";
+  var canPause = code === "protected" || code === "warn" || code === "held" || code === "saved";
   var action = null;
-  if (paused) {
-    action = h(Btn, { onClick: props.onResume, disabled: props.locked }, "Resume protection");
+  if (verdict.code === "changing") {
+    // The same control, still focusable, while its own write is unanswered.
+    action = h(
+      Btn,
+      { id: "petasos-protection-action", outlined: verdict.word === "Pausing…", "aria-disabled": "true", className: "petasos-busy" },
+      verdict.word
+    );
+  } else if (props.pending || verdict.code === "lastknown") {
+    action = h(Btn, { id: "petasos-protection-action", onClick: props.onCheck, disabled: props.checking }, props.checking ? "Checking…" : "Check again");
+  } else if (paused) {
+    action = h(
+      Btn,
+      {
+        id: "petasos-protection-action",
+        onClick: props.saving ? undefined : props.onResume,
+        disabled: props.locked,
+        "aria-disabled": props.saving ? "true" : undefined,
+        className: props.saving ? "petasos-busy" : undefined,
+      },
+      "Resume protection"
+    );
   } else if (canPause) {
-    action = h(Btn, { outlined: true, onClick: props.onPause, disabled: props.locked }, "Pause protection");
+    action = h(
+      Btn,
+      {
+        id: "petasos-protection-action",
+        outlined: true,
+        onClick: props.saving ? undefined : props.onPause,
+        disabled: props.locked,
+        "aria-disabled": props.saving ? "true" : undefined,
+        className: props.saving ? "petasos-busy" : undefined,
+      },
+      "Pause protection"
+    );
   } else if (verdict.step && verdict.step.href) {
     action = h("a", { className: "petasos-link", href: verdict.step.href }, verdict.step.label);
   } else if (verdict.step && verdict.step.view) {
     action = h(Btn, { onClick: function () { go(verdict.step.view); } }, verdict.step.label);
   }
-  var showCoverage = verdict.code !== "off" && verdict.code !== "invalid";
+  var showCoverage = ["off", "invalid"].indexOf(verdict.code) < 0 && props.detailsCurrent;
   return h(
     Panel,
     {
@@ -240,7 +264,7 @@ function VerdictPanel(props) {
       actions: action,
     },
     h("p", { className: "petasos-verdict-title", id: "petasos-verdict-title" }, verdict.title),
-    props.finding && props.finding.count
+    props.finding && props.finding.count && props.detailsCurrent
       ? h(
           "div",
           { className: "petasos-alarm-row", role: "status" },
@@ -261,6 +285,22 @@ function VerdictPanel(props) {
     verdict.stepText ? h("p", { className: "petasos-verdict-reason" }, h("strong", null, "Next step: "), verdict.stepText) : null,
     verdict.held ? h(HeldFix, { row: verdict.held, status: status }) : null,
     showCoverage ? h(CoverageRows, { status: status, paused: paused, onShowChecks: props.onShowChecks }) : null,
+    props.waiting
+      ? h("p", { className: "petasos-secondary", role: "status" }, "What is running is shown again once Petasos confirms the change.")
+      : null,
+    props.stale
+      ? h(
+          "div",
+          { className: "petasos-alarm-row", role: "status" },
+          h(
+            "p",
+            null,
+            "The change was saved, but what is running could not be read afterwards" +
+              (props.stale.readAt ? "; the last reading was at " + clockTime(props.stale.readAt) + ", before the change." : ".")
+          ),
+          h(Btn, { outlined: true, onClick: props.onCheck, disabled: props.checking }, props.checking ? "Checking…" : "Check again")
+        )
+      : null,
     props.children
   );
 }
@@ -333,6 +373,7 @@ function SetupControls(props) {
   var previewState = useState(null);
   var previewed = previewState[0];
   var busyState = useState(false);
+  var retryState = useState(0);
   var locked = catalog.locked || {};
   var roleLocked = props.locked || (locked.stored || []).indexOf("role") >= 0;
   var levelLocked = props.locked || (locked.stored || []).indexOf("level") >= 0;
@@ -360,7 +401,7 @@ function SetupControls(props) {
         live = false;
       };
     },
-    [JSON.stringify(pending)]
+    [JSON.stringify(pending), retryState[0]]
   );
 
   function choose(kind, name) {
@@ -374,7 +415,7 @@ function SetupControls(props) {
   function apply(extra) {
     busyState[1](true);
     props
-      .onSave(Object.assign({}, pending, extra || {}))
+      .onSave(Object.assign({}, pending, extra || {}), "Change the " + (pending.role ? "job" : "strictness"), previewed && previewed.applies)
       .then(function () {
         setPending(null);
       })
@@ -398,8 +439,14 @@ function SetupControls(props) {
   var labels = catalog.labels || {};
 
   return h(
-    "div",
-    { className: "petasos-setup", id: "petasos-setup", role: "group", "aria-label": "Setup" },
+    Panel,
+    {
+      className: "petasos-setup",
+      id: "petasos-setup",
+      title: "Setup",
+      description: "Job and strictness set the defaults. A setting you change yourself in Settings takes precedence.",
+      actions: h(LinkButton, { onClick: function () { go("settings"); } }, "All settings"),
+    },
     roleLocked || levelLocked ? h("p", { className: "petasos-secondary" }, "Locked by your administrator.") : null,
     status.choices_note
       ? h("p", { className: "petasos-secondary", role: "status" }, status.choices_note)
@@ -414,7 +461,7 @@ function SetupControls(props) {
         options: roles,
         chosen: chosenRole,
         current: currentRole,
-        locked: roleLocked,
+        locked: roleLocked || props.saving,
         onChoose: function (name) {
           choose("role", name);
         },
@@ -426,7 +473,7 @@ function SetupControls(props) {
         options: levels,
         chosen: chosenLevel,
         current: currentLevel,
-        locked: levelLocked,
+        locked: levelLocked || props.saving,
         onChoose: function (name) {
           choose("level", name);
         },
@@ -442,6 +489,10 @@ function SetupControls(props) {
           currentRole: currentRole,
           currentLevel: currentLevel,
           busy: busyState[0],
+          saving: props.saving,
+          onRetry: function () {
+            retryState[1](retryState[0] + 1);
+          },
           onApply: function () {
             apply();
           },
@@ -469,7 +520,11 @@ function ChoicePreview(props) {
   if (!previewed) {
     body = h("p", { className: "petasos-secondary", role: "status" }, "Working out what would change…");
   } else if (previewed.failure) {
-    body = h(Notice, { tone: "destructive", title: "Petasos could not preview this" }, previewed.failure.message);
+    body = h(
+      Notice,
+      { tone: "destructive", title: "Petasos could not preview this", action: h(Btn, { onClick: props.onRetry }, "Try again") },
+      previewed.failure.message
+    );
   } else if (!previewed.valid) {
     body = h(
       Notice,
@@ -507,9 +562,14 @@ function ChoicePreview(props) {
     suggestion
       ? h(
           "p",
-          { className: "petasos-preview-text" },
-          h("strong", null, levelLabel(catalog, suggestion) + " strictness: "),
-          suggestedLevel && suggestedLevel.description ? suggestedLevel.description : ""
+          { className: "petasos-preview-text petasos-secondary" },
+          h("strong", null, "This keeps " + levelLabel(catalog, pending.level || props.currentLevel) + " strictness. "),
+          roleLabel(catalog, pending.role) +
+            " is often used with " +
+            levelLabel(catalog, suggestion) +
+            ". " +
+            (suggestedLevel && suggestedLevel.description ? suggestedLevel.description + " " : "") +
+            "Choose it under Strictness first if you want it."
         )
       : null,
     h(
@@ -519,7 +579,7 @@ function ChoicePreview(props) {
         Btn,
         {
           onClick: props.onApply,
-          disabled: props.busy || !previewed || Boolean(previewed.failure) || !previewed.valid,
+          disabled: props.busy || props.saving || !previewed || Boolean(previewed.failure) || !previewed.valid,
         },
         props.busy
           ? "Applying…"
@@ -548,50 +608,57 @@ function RecentPanel(props) {
   var events = props.events || [];
   var tiles = (summary && summary.figures) || [];
   var groups = groupEvents(events).slice(0, 4);
+  var partial = summary && summary.complete === false;
+  var description;
+  if (!summary) description = props.failure ? "The activity record could not be read." : "Loading…";
+  else if (summary.total) description = plural(summary.total, "event") + (partial ? " in the part of the record that was read" : "") + ". Clean actions are not listed.";
+  else if (partial) description = "No events in the part of the record that was read. The rest was too large to read here.";
+  else if (props.skipped) description = "No readable events.";
+  else description = "Nothing to report. Clean actions are not listed.";
+  if (props.skipped) {
+    description += " " + plural(props.skipped, "line") + " of the record could not be read, so this may not be everything.";
+  }
+  if (summary && props.failure) description += " Could not refresh; these are from " + clockTime(props.readAt) + ".";
   return h(
     Panel,
     {
       title: "Last 24 hours",
-      description: summary
-        ? summary.total
-          ? plural(summary.total, "event") + ". Clean actions are not listed."
-          : "Nothing to report. Clean actions are not listed."
-        : "Loading…",
+      description: description,
       actions: h(LinkButton, { onClick: function () { go("activity"); } }, "Open Activity"),
+      bare: !tiles.length && !groups.length,
     },
-    h(
-      "dl",
-      { className: "petasos-stats" },
-      tiles.map(function (tile) {
-        var value = tile.count;
-        return h(
-          "div",
-          { key: tile.code, className: "petasos-stat" },
-          h("dt", null, tile.label),
-          h(
-            "dd",
-            null,
-            h(
-              "button",
-              {
-                type: "button",
-                className: "petasos-stat-value",
-                title: "Show them in Activity",
-                "aria-label": value + " " + tile.label + ": show them in Activity",
-                onClick: function () {
-                  go("activity", {
-                    range: "24h",
-                    outcome: (tile.outcomes || [tile.code]).join(","),
-                    word: tile.label,
-                  });
+    tiles.length
+      ? h(
+          "ul",
+          { className: "petasos-figures", "aria-label": "Events in the last 24 hours, by outcome" },
+          tiles.map(function (tile) {
+            var value = tile.count;
+            return h(
+              "li",
+              { key: tile.code },
+              h(
+                "button",
+                {
+                  type: "button",
+                  className: cn("petasos-figure", !value && "petasos-figure-zero"),
+                  disabled: !value,
+                  title: value ? "Show them in Activity" : undefined,
+                  "aria-label": value + " " + tile.label + (value ? ": show them in Activity" : ""),
+                  onClick: function () {
+                    go("activity", {
+                      range: "24h",
+                      outcome: (tile.outcomes || [tile.code]).join(","),
+                      word: tile.label,
+                    });
+                  },
                 },
-              },
-              String(value)
-            )
-          )
-        );
-      })
-    ),
+                h("span", { className: "petasos-figure-n" }, String(value)),
+                h("span", { className: "petasos-figure-label" }, tile.label)
+              )
+            );
+          })
+        )
+      : null,
     groups.length
       ? h(
           "ul",
@@ -615,8 +682,9 @@ function RecentPanel(props) {
                 h(
                   "span",
                   { className: "petasos-mini-text" },
-                  event.summary,
-                  group.events.length > 1 ? h("span", { className: "petasos-repeat" }, " ×" + group.events.length) : null
+                  event.headline || event.summary,
+                  group.events.length > 1 ? h("span", { className: "petasos-repeat" }, " ×" + group.events.length) : null,
+                  event.headline && event.explanation ? h("span", { className: "petasos-event-explain petasos-block" }, event.explanation) : null
                 ),
                 h(Status, { tone: outcomeTone(outcome.code), state: outcome.code }, outcome.label || "Recorded"),
                 h(Icon, { name: "chevron", className: "petasos-chevron" })
@@ -655,7 +723,7 @@ function ChecksPanel(props) {
         var basic = row.id === "syntactic";
         var name = basic ? row.label : row.purpose || sentenceCase(info.covers || row.label);
         var product = basic ? info.covers : row.label;
-        var fixable = (info.recommended || info.held) && (info.command || row.fix);
+        var fixable = info.command || ((info.recommended || info.held) && row.fix);
         return h(
           "li",
           { key: row.id, className: "petasos-scanner" },
@@ -725,22 +793,186 @@ function WhoPanel(props) {
   );
 }
 
+// The first visit to a profile where nobody has chosen a job or a strictness.
+// Progress is kept in this browser, per Hermes profile.
+var startProfile = "";
+
+function startKey() {
+  return "petasos.start" + (startProfile ? ":" + startProfile : "");
+}
+
+function readStart() {
+  try {
+    return JSON.parse(window.localStorage.getItem(startKey()) || "{}") || {};
+  } catch (_e) {
+    return {};
+  }
+}
+
+function writeStart(patch) {
+  var next = Object.assign(readStart(), patch);
+  try {
+    window.localStorage.setItem(startKey(), JSON.stringify(next));
+  } catch (_e) {
+    // Without storage the steps simply show again on the next visit.
+  }
+  return next;
+}
+
+function startingNow(catalog) {
+  var start = readStart();
+  if (start.done) return false;
+  if (start.begun) return true;
+  var overrides = (catalog.stored && catalog.stored.overrides) || {};
+  return Array.isArray(catalog.chosen) && !catalog.chosen.length && !Object.keys(overrides).length;
+}
+
+function StartStep(props) {
+  return h(
+    "li",
+    { className: cn("petasos-step", props.done && "petasos-step-done") },
+    h(
+      "span",
+      { className: "petasos-step-mark", "aria-hidden": true },
+      props.done ? h(Icon, { name: "check", size: 14 }) : String(props.n)
+    ),
+    h(
+      "div",
+      { className: "petasos-step-text" },
+      h("p", { className: "petasos-step-title" }, props.title, props.done ? h("span", { className: "sr-only" }, " (done)") : null),
+      h("p", { className: "petasos-secondary" }, props.children)
+    ),
+    props.action ? h("div", { className: "petasos-step-action" }, props.action) : null
+  );
+}
+
+function GetStarted(props) {
+  var catalog = props.catalog;
+  var stored = catalog.stored || {};
+  var startState = useState(function () {
+    return writeStart({ begun: true });
+  });
+  var start = startState[0];
+  var pickedRole = (catalog.chosen || []).indexOf("role") >= 0;
+  var pickedLevel = (catalog.chosen || []).indexOf("level") >= 0;
+  var chosen = pickedRole || pickedLevel;
+  var role = roleLabel(catalog, stored.role);
+  var level = levelLabel(catalog, stored.level);
+  var locked = props.locked || ((catalog.locked && catalog.locked.stored) || []).length > 0;
+  var finished = chosen && Boolean(start.tried);
+  function finish() {
+    startState[1](writeStart({ done: true }));
+  }
+  function fold(hidden) {
+    startState[1](writeStart({ hidden: hidden }));
+  }
+  if (start.done) return null;
+  if (start.hidden) {
+    return h(Panel, {
+      className: "petasos-start",
+      title: "Get started",
+      description: (chosen ? 1 : 0) + (start.tried ? 1 : 0) + " of 2 steps done.",
+      actions: h(Btn, { ghost: true, onClick: function () { fold(false); }, "aria-label": "Show the get started steps" }, "Show"),
+      bare: true,
+    });
+  }
+  return h(
+    Panel,
+    {
+      className: "petasos-start",
+      title: "Get started",
+      description: "Two steps fit Petasos to this agent.",
+      actions: finished
+        ? h(Btn, { ghost: true, onClick: finish, "aria-label": "Finish and remove the get started steps" }, "Done")
+        : h(Btn, { ghost: true, onClick: function () { fold(true); }, "aria-label": "Hide the get started steps" }, "Hide"),
+    },
+    h(
+      "ol",
+      { className: "petasos-steps-list" },
+      h(
+        StartStep,
+        {
+          n: 1,
+          done: chosen,
+          title: chosen ? "Setup chosen" : "Choose what this agent does",
+          action: chosen
+            ? null
+            : h(
+                Fragment,
+                null,
+                h(
+                  Btn,
+                  {
+                    disabled: locked || props.saving,
+                    onClick: function () {
+                      props.onSave({ role: stored.role, level: stored.level }, "Keep " + role + " and " + level).catch(function () {});
+                    },
+                  },
+                  String(props.savingWhat || "").indexOf("Keep ") === 0 ? "Saving…" : "Keep " + role + " and " + level
+                ),
+                h(Btn, { outlined: true, onClick: props.onChoose }, "Choose another")
+              ),
+        },
+        chosen
+          ? role +
+              " job" +
+              (pickedRole ? "" : " (the default; not chosen)") +
+              ", " +
+              level +
+              " strictness" +
+              (pickedLevel ? "" : " (the default; not chosen)") +
+              ". Change them under Setup at any time."
+          : "Nobody has chosen yet, so Petasos uses " + role + " with " + level + " strictness. Keep them, or pick the job that fits under Setup."
+      ),
+      h(
+        StartStep,
+        {
+          n: 2,
+          done: Boolean(start.tried),
+          title: "Try an example",
+          action: h(
+            Btn,
+            {
+              outlined: true,
+              onClick: function () {
+                go("tryit");
+              },
+            },
+            start.tried ? "Open Try it again" : "Open Try it"
+          ),
+        },
+        "Try it runs a sample attack through the checks and shows what Petasos would do with it. Nothing is run or recorded. This step is done once a check has finished."
+      )
+    )
+  );
+}
+
 function Overview(props) {
   var status = props.status;
   var catalog = props.catalog;
   var summaryState = useState(null);
   var eventsState = useState([]);
+  var recentFailureState = useState(null);
+  var skippedState = useState(0);
+  var readAtState = useState(null);
+  var beginRecent = useLatest();
   usePoll(
     function () {
       var since = Math.floor(Date.now() / 1000) - 86400;
-      call("/activity/summary" + query({ since: since }))
-        .then(summaryState[1])
-        .catch(function () {});
-      call("/activity" + query({ limit: 20, since: since }))
-        .then(function (body) {
-          eventsState[1](body.events || []);
-        })
-        .catch(function () {});
+      var latest = beginRecent();
+      return Promise.all([call("/activity/summary" + query({ since: since })), call("/activity" + query({ limit: 20, since: since }))]).then(
+        function (answers) {
+          if (!latest()) return;
+          summaryState[1](answers[0]);
+          eventsState[1](answers[1].events || []);
+          skippedState[1](answers[1].skipped_lines || 0);
+          recentFailureState[1](null);
+          readAtState[1](Date.now());
+        },
+        function (failure) {
+          if (latest()) recentFailureState[1](failure);
+        }
+      );
     },
     30000,
     [props.refreshKey]
@@ -759,38 +991,100 @@ function Overview(props) {
       var target = document.getElementById(id);
       if (!target) return;
       revealInView(target, "start");
-      var focusable = target.querySelector("[role=radio][tabindex='0'], button, a");
+      var focusable = target.querySelector("[role=radio][tabindex='0']") || target.querySelector("button, a");
       if (focusable) focusable.focus({ preventScroll: true });
     };
   }
   var verdict = verdictOf(status);
-  var setup = verdict.code === "off" || verdict.code === "invalid"
-    ? null
-    : catalog
-      ? h(SetupControls, { catalog: catalog, status: status, locked: props.locked, onSave: props.onSave })
-      : h("p", { className: "petasos-secondary petasos-setup", role: "status" }, "Loading the choices…");
+  var usable = verdict.code !== "off" && verdict.code !== "invalid";
+  startProfile = status.home || "";
+  var starting = usable && catalog ? startingNow(catalog) : false;
+  var setup = null;
+  var staleCatalog =
+    catalog && props.catalogFailure
+      ? h(
+          Notice,
+          {
+            tone: "warning",
+            title: "The settings could not be re-read",
+            action: h(Btn, { ghost: true, onClick: props.onRetryCatalog }, "Try again"),
+          },
+          "Setup and “Who can change these settings” show what was read at " +
+            (props.catalogReadAt ? clockTime(props.catalogReadAt) : "an earlier time") +
+            " and may have changed since."
+        )
+      : null;
+  if (usable && catalog) {
+    setup = h(SetupControls, { catalog: catalog, status: status, locked: props.locked, saving: props.saving, onSave: props.onSave });
+  } else if (usable && props.catalogFailure) {
+    setup = h(
+      Panel,
+      { title: "Setup", id: "petasos-setup" },
+      h(
+        Notice,
+        {
+          tone: "destructive",
+          title: "The job and strictness could not be loaded",
+          action: h(Btn, { onClick: props.onRetryCatalog }, "Try again"),
+        },
+        props.catalogFailure.message
+      )
+    );
+  } else if (usable) {
+    setup = h("p", { className: "petasos-secondary", role: "status" }, "Loading the choices…");
+  }
+  var recent = h(RecentPanel, {
+    summary: summaryState[0],
+    events: eventsState[0],
+    failure: recentFailureState[0],
+    skipped: skippedState[0],
+    readAt: readAtState[0],
+  });
+  var verdictPanel = h(VerdictPanel, {
+    status: status,
+    catalog: catalog,
+    locked: props.locked,
+    saving: props.saving,
+    pending: props.pending,
+    stale: props.stale,
+    verdict: props.verdict,
+    detailsCurrent: props.detailsCurrent,
+    waiting: props.waiting,
+    checking: props.checking,
+    onCheck: props.onCheck,
+    onPause: props.onPause,
+    onResume: props.onResume,
+    onShowChecks: reveal("petasos-checks"),
+    finding: summaryState[0] && summaryState[0].finding,
+  });
+  // While a change is unconfirmed, nothing that describes the current settings is shown as current.
+  if (props.pending) {
+    return h("div", { className: "petasos-stack" }, verdictPanel, recent);
+  }
   return h(
     "div",
     { className: "petasos-stack" },
-    h(
-      VerdictPanel,
-      {
-        status: status,
-        catalog: catalog,
-        locked: props.locked,
-        onPause: props.onPause,
-        onResume: props.onResume,
-        onShowChecks: reveal("petasos-checks"),
-        finding: summaryState[0] && summaryState[0].finding,
-      },
-      setup
-    ),
-    h(RecentPanel, { summary: summaryState[0], events: eventsState[0] }),
+    verdictPanel,
+    staleCatalog,
+    starting
+      ? h(GetStarted, {
+          catalog: catalog,
+          status: status,
+          locked: props.locked,
+          saving: props.saving,
+          savingWhat: props.savingWhat,
+          onSave: props.onSave,
+          onChoose: reveal("petasos-setup"),
+        })
+      : null,
+    setup,
+    recent,
     h(
       "div",
       { className: "petasos-grid-2" },
-      h(ChecksPanel, { status: status }),
-      h(WhoPanel, { status: status, catalog: catalog })
+      props.detailsCurrent ? h(ChecksPanel, { status: status }) : null,
+      // Who may change settings is part of the status reading, so it follows the same rule.
+      props.detailsCurrent ? h(WhoPanel, { status: status, catalog: catalog }) : null
     )
   );
 }

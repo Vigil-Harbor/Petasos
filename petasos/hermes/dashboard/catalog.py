@@ -249,6 +249,8 @@ def read_settings(
     ``secrets`` maps ``session_secret`` and ``hash_key`` to ``set`` or
     ``unset``. The values themselves are not accepted. ``managed`` is the set
     of keys Hermes's managed config pins, or None when it cannot be read.
+    ``chosen`` names which of the job and the strictness the document itself
+    holds; ``stored`` fills the default for the other.
     """
     document = stored_document(stored)
     resolved, problems = _try_resolve(document)
@@ -256,6 +258,7 @@ def read_settings(
     _add_reset_targets(rows, document)
     return envelope(
         stored=document,
+        chosen=[key for key in ("role", "level") if key in stored],
         labels={key: SETTING_LABEL[key] for key in _FOUR},
         help={key: SETTING_HELP[key] for key in _FOUR},
         locked=locked_paths(managed),

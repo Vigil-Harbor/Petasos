@@ -198,8 +198,8 @@ def record_signing(
             "Make a random value: openssl rand -base64 32",
             f"Add a line to {env_file}: PETASOS_SESSION_SECRET=<that value>",
             "Restart Hermes (Restart Gateway in the sidebar).",
-            "New records are signed from then on. Older records stay unsigned, and the "
-            "check marks them as not matching.",
+            "New records are signed from then on. Older records stay unsigned and are "
+            "shown as having no signature.",
         ],
     }
 

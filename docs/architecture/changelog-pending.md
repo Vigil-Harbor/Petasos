@@ -92,6 +92,21 @@ deleted.
 
 ## Changed
 
+- The Petasos tab was reworked in a designer and reviewer loop. Overview keeps
+  the protection state apart from the job and strictness choices and offers two
+  first-run steps on a profile where neither has been chosen. Activity opens its
+  filters from one button, can filter by outcome, and reports a record with no
+  signature apart from one whose signature does not match. Try it shows what
+  gets checked beside the result, keeps a trial while live settings are chosen,
+  and marks a result out of date when the settings or protection state it ran
+  under change. Every write goes through one path: when an answer is lost the
+  settings are read back and the page reports what that reading shows, and the
+  status is shown as current only when it was read after the last write settled.
+  The settings API reports which of the job and strictness were chosen, the
+  trial API says whether a matched rule can be turned off and whether a run was
+  incomplete, and an activity record that cannot be opened is an error, not an
+  empty list. Known limits are tracked as PET-309, PET-310 and PET-311.
+
 - PromptGuard with its packages installed but its model not cached, and no way
   to download it, is reported as installed but unusable. Under `auto` it stays
   registered, so the fail mode applies, as the availability table in the
