@@ -29,11 +29,14 @@ if TYPE_CHECKING:
     from typing import Any
 
     from petasos import Pipeline
+    from petasos.scanners.bootstrap import ScannerBuildStatus
 
 logger = logging.getLogger("petasos.dashboard")
 
 
-def build_dashboard_pipeline(raw_config: dict[str, Any]) -> Pipeline:
+def build_dashboard_pipeline(
+    raw_config: dict[str, Any],
+) -> tuple[Pipeline, tuple[ScannerBuildStatus, ...]]:
     """Build the read-only dashboard ``Pipeline`` from a raw config dict.
 
     Owns everything ``_self_init`` historically did *between* the config read and
@@ -50,6 +53,10 @@ def build_dashboard_pipeline(raw_config: dict[str, Any]) -> Pipeline:
     for the standalone ``__main__`` path: a builder that left those env reads in
     ``_self_init`` would hand the standalone console ``session_secret=None`` and
     silently unattested spool reads.
+
+    Returns ``(pipeline, statuses)``. ``statuses`` is the tuple from that same
+    ``build_scanners`` call, so the console can show a backend it was asked for
+    and did not register.
     """
     from petasos import PetasosConfig, Pipeline
     from petasos.scanners import build_scanners
@@ -124,4 +131,4 @@ def build_dashboard_pipeline(raw_config: dict[str, Any]) -> Pipeline:
         [s.name for s in scanners],
         unavailable,
     )
-    return pipeline
+    return pipeline, tuple(statuses)

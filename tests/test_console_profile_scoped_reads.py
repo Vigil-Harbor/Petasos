@@ -805,6 +805,9 @@ async def test_health_reports_scope_and_does_not_fabricate(env: _Env) -> None:
     # Every process fact is reported identically: health is NOT per-profile.
     assert scoped["pipeline"] == unscoped["pipeline"]
     assert scoped["scanners"] == unscoped["scanners"]
+    # Regression for PET-264: scoped and unscoped health share the startup build record.
+    assert scoped["scanner_build"] == unscoped["scanner_build"]
+    assert scoped["scanner_build"] == {"available": False, "statuses": None}
 
 
 async def test_hermes_home_inside_profiles_is_equipped(

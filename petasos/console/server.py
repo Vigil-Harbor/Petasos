@@ -46,7 +46,7 @@ from petasos.console._validation import SessionIdError, sanitize_session_id
 from petasos.normalize import normalize
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncIterator, Sequence
     from pathlib import Path
 
     from fastapi import FastAPI
@@ -54,6 +54,7 @@ if TYPE_CHECKING:
     from petasos.config import PetasosConfig
     from petasos.console._paths import HermesConfigResolution
     from petasos.pipeline import Pipeline
+    from petasos.scanners.bootstrap import ScannerBuildStatus
     from petasos.session.profiles import ResolvedProfile
 
 _logger = logging.getLogger(__name__)
@@ -873,8 +874,16 @@ def _active_profile_overrides(view_profile: "ResolvedProfile | None") -> dict[st
 class ConsoleHandlers:
     """Shared route handlers used by both standalone and Hermes plugin modes."""
 
-    def __init__(self, pipeline: "Pipeline") -> None:
+    def __init__(
+        self,
+        pipeline: "Pipeline",
+        *,
+        scanner_build: "Sequence[ScannerBuildStatus] | None" = None,
+    ) -> None:
         self.pipeline = pipeline
+        # PET-264: captured at construction. reconfigure swaps config and does not
+        # rebuild the scanner list, so health keeps this startup record.
+        self._scanner_build = None if scanner_build is None else tuple(scanner_build)
         # PET-139: derive the reader-side spool-integrity key from the pipeline's config
         # (D5). This is the single construction chokepoint for BOTH standalone (`build_app`)
         # and embedded (`plugin_api.init_handlers`) modes, so `self._spool_key` is always
@@ -1838,6 +1847,27 @@ class ConsoleHandlers:
             "remediation": remediation,
         }
 
+    def _scanner_build_payload(self) -> dict[str, Any]:
+        """The startup build record, or the unavailable object when none was given.
+
+        A new dict and a new status list on every call. Entries are copied in
+        sequence order and are not sorted, dropped, or rewritten.
+        """
+        if self._scanner_build is None:
+            return {"available": False, "statuses": None}
+        return {
+            "available": True,
+            "statuses": [
+                {
+                    "scanner_id": status.scanner_id,
+                    "display_name": status.display_name,
+                    "outcome": status.outcome,
+                    "reason": status.reason,
+                }
+                for status in self._scanner_build
+            ],
+        }
+
     async def get_health(self, profile: str | None = None) -> dict[str, Any]:
         # PET-166 (D8): health stays PROCESS-scoped — every field below describes the
         # running pipeline, none of which is knowable for a non-equipped profile, and
@@ -1866,6 +1896,7 @@ class ConsoleHandlers:
                 "scan_history_capacity": _SCAN_HISTORY_RING_CAPACITY,
             },
             "scanners": self.pipeline.scanner_health(),
+            "scanner_build": self._scanner_build_payload(),
             "feature_status": dict(self.pipeline._build_feature_status()),
             # PET-157 (D5): additive integrity diagnostic. Existing consumers ignore unknown
             # keys; no change to any other field or HTTP response shape.
@@ -2354,7 +2385,12 @@ def _maybe_fire_console_probe(pipeline: "Pipeline") -> None:
         pass
 
 
-def build_app(pipeline: "Pipeline", *, auth_token: str | None = None) -> "FastAPI":
+def build_app(
+    pipeline: "Pipeline",
+    *,
+    auth_token: str | None = None,
+    scanner_build: "Sequence[ScannerBuildStatus] | None" = None,
+) -> "FastAPI":
     """Build the complete FastAPI application.
 
     PET-125: when *auth_token* is a non-blank string, every ``/api/*`` route
@@ -2424,7 +2460,7 @@ def build_app(pipeline: "Pipeline", *, auth_token: str | None = None) -> "FastAP
             dependencies=[Depends(_require_console_token)],
         )
 
-    handlers = ConsoleHandlers(pipeline)
+    handlers = ConsoleHandlers(pipeline, scanner_build=scanner_build)
     # PET-223: the reviewed-write gate. A configured token means the bearer
     # dependency above already ran for every /api/* request that reaches a handler.
     handlers._review_auth_configured = resolved_token is not None

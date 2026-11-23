@@ -505,7 +505,7 @@ class TestEnforcementParity:
 
         # Each path gets its OWN copy: the console copies defensively, but
         # _deferred_init pops host_id/enabled off _config in place.
-        console_pipeline = build_dashboard_pipeline(dict(raw))
+        console_pipeline, _ = build_dashboard_pipeline(dict(raw))
 
         ref = _import_reference_plugin()
         _reset_plugin(ref, monkeypatch)
@@ -649,14 +649,18 @@ def test_semgrep_enabled_without_owner_never_constructs_or_probes(
     elif entrypoint == "dashboard":
         from petasos.console._standalone import build_dashboard_pipeline
 
-        pipeline = build_dashboard_pipeline(config.to_dict())
+        pipeline, _ = build_dashboard_pipeline(config.to_dict())
         assert not pipeline._ml_scanners
     elif entrypoint == "embedded":
         from petasos.console.hermes import plugin_api
 
         pipelines: list[Pipeline] = []
+
+        def _record(pipeline: Pipeline, *, scanner_build: object = None) -> None:
+            pipelines.append(pipeline)
+
         monkeypatch.setattr(plugin_api, "_load_config", config.to_dict)
-        monkeypatch.setattr(plugin_api, "init_handlers", pipelines.append)
+        monkeypatch.setattr(plugin_api, "init_handlers", _record)
         plugin_api._self_init()
         assert len(pipelines) == 1 and not pipelines[0]._ml_scanners
     else:
