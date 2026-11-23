@@ -240,11 +240,30 @@ def _one_command(
 
 
 def _python_module(argv: tuple[str, ...]) -> tuple[str, ...] | None:
-    """The module and its arguments for Python's separate or joined -m form."""
-    if len(argv) >= 3 and argv[1] == "-m":
-        return argv[2:]
-    if len(argv) >= 2 and argv[1].startswith("-m") and len(argv[1]) > 2:
-        return (argv[1][2:], *argv[2:])
+    """The module and its arguments for Python's ``-m``, after any interpreter options.
+
+    ``-m`` may be separate, joined to the module (``-mpkg``) or the last letter
+    of a cluster (``-um pkg``). ``-W`` and ``-X`` take the next word. ``-c``
+    runs code, not a module.
+    """
+    index = 1
+    while index < len(argv):
+        word = argv[index]
+        if not word.startswith("-") or word in ("-", "--") or word.startswith("--"):
+            return None
+        letters = word[1:]
+        if "m" in letters and letters.isalpha():
+            at = letters.index("m")
+            if "c" in letters[:at]:
+                return None
+            joined = letters[at + 1 :]
+            rest = argv[index + 1 :]
+            return (joined, *rest) if joined else (rest or None)
+        if letters.startswith("m"):
+            return (letters[1:], *argv[index + 1 :])
+        if letters.startswith("c"):
+            return None
+        index += 2 if word in ("-W", "-X") else 1
     return None
 
 
