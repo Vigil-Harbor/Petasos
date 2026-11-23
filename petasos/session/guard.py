@@ -487,7 +487,6 @@ _HERMES_GUARDRAIL_KEYS = ("command_allowlist", "approvals", "petasos", "plugins"
 # Keys matched whatever program runs ``config set|unset`` (see _keyed_config_change).
 _KEYED_GUARDRAIL_KEYS = ("command_allowlist", "approvals", "petasos")
 _HERMES_PLUGIN_VERBS = frozenset({"disable", "remove", "rm", "uninstall"})
-_HERMES_HELP_OPTIONS = frozenset({"--help", "-h"})
 # Upper bound on argument words examined per command, so a long command line
 # costs linear time. Reaching it is treated as a configuration change.
 _HERMES_SCAN_BUDGET = 100_000
@@ -539,9 +538,8 @@ def _hermes_route(args: list[str]) -> str | None:
             options.append(arg.partition("=")[0])
         elif arg:
             positionals.append(arg)
-    if _HERMES_HELP_OPTIONS.intersection(options):
-        # Hermes prints usage and exits; nothing is written.
-        return None
+    # A help flag is not exempted: without a shell parser, a ``--help`` word in a
+    # comment or another command cannot be told from one Hermes receives.
     head = [word.casefold() for word in positionals[:3]]
     if head[:2] in (["config", "edit"], ["config", "migrate"]):
         return "hermes " + " ".join(head[:2])
@@ -627,7 +625,9 @@ def _hermes_config_change(command: str) -> str | None:
             if not hermes and word.strip("`").casefold() != "config":
                 continue
             tail: list[str] = []
-            for arg in words[index + 1 :]:
+            # Index, not a slice: a slice would copy every remaining word per candidate.
+            for position in range(index + 1, len(words)):
+                arg = words[position]
                 if arg and all(char in _SHELL_BREAKS for char in arg):
                     break
                 budget -= 1

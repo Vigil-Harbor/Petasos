@@ -167,8 +167,6 @@ async def test_flag_abbreviations(
         "hermes profile update demo",
         "hermes backup --quick",
         "other-hermes config set other_key '[]'",
-        "hermes config edit --help",
-        "hermes plugins disable petasos -h",
         "hermes plugins enable petasos",
     ],
 )
@@ -434,3 +432,24 @@ async def test_long_commands_stay_linear(guard: ToolCallGuard) -> None:
     assert result.selfmod_finding is not None
     assert result.selfmod_finding.rule_id == _WRITE_RULE
     assert result.selfmod_target == "hermes configuration (command too long to inspect)"
+    started = time.monotonic()
+    many_segments = "; ".join(["echo config"] * 100000)
+    result = await guard.evaluate("terminal", {"command": many_segments}, "segments")
+    assert time.monotonic() - started < 5.0
+    assert result.selfmod_finding is None
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "hermes config edit --help",
+        "hermes plugins disable petasos -h",
+        "hermes config set command_allowlist x # --help",
+        "hermes config set approvals.timeout 120 # -h",
+    ],
+)
+async def test_help_words_do_not_exempt_a_writer(guard: ToolCallGuard, command: str) -> None:
+    """Without a shell parser a help word may sit in a comment Hermes never receives."""
+    result = await guard.evaluate("terminal", {"command": command}, "help")
+    assert result.selfmod_finding is not None
+    assert result.selfmod_finding.rule_id == _WRITE_RULE
