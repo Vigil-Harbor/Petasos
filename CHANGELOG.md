@@ -4,7 +4,7 @@ All notable changes to Petasos are documented here. Format follows [Keep a Chang
 
 ## [Unreleased]
 
-## [0.5.0] - 2026-11-02
+## [0.5.0] - 2026-11-23
 
 Headline release since 0.4.0: the scanner backend migration begins. Meta's
 PromptGuard 2 now runs as a direct `prompt_guard` backend on torch and
@@ -17,7 +17,11 @@ fail mode. The reference plugin gains a dependency manifest for Hermes
 generations, Hermes's context-local home override now leads config resolution,
 the console reports which served profiles can actually load a hook and works on
 Hermes's default profile, approval decisions are recorded on the enforcement
-spool, and a degraded approve re-arms until a session or always answer.
+spool, and a degraded approve re-arms until a session or always answer. An
+opt-in Semgrep scanner for unsafe code arrives, and the console shows a scanner
+the startup build refused. This release also carries a security fix for the
+Hermes plugin: Hermes configuration changes that touch Petasos's guardrails are
+now stopped, not only recorded. See Security below and upgrade from 0.4.0.
 
 ### Upgrade note: PET-242 can block all content until you act
 
@@ -210,6 +214,23 @@ fails config validation, because an older release rejects the unknown id.
   confirmed `session` or `always` response, and re-arms the prompt on deny or
   timeout. The record is in-memory state beside the existing approval row. No
   new event type is added.
+
+### Security
+
+- **Hermes configuration changes that touch Petasos's guardrails are stopped,
+  not only recorded ([GHSA-cvmp-gx23-mv83](https://github.com/Vigil-Harbor/Petasos/security/advisories/GHSA-cvmp-gx23-mv83)).** In 0.4.0 an agent could add a Petasos
+  rule to Hermes's permanent approval list by running the Hermes command line
+  from its terminal tool, after which commands matching that rule were allowed.
+  Petasos now treats Hermes commands that change that list, Hermes's approval
+  settings, Petasos's own settings or whether the plugin is loaded as changes
+  to its own guardrails. The reference plugin blocks them, or holds them for a
+  person under the approve posture, and an "always" approval never covers
+  them. A direct write to the Hermes configuration file is handled the same
+  way; 0.4.0 recorded it without stopping it. A tool call that only mentions
+  the configuration path stays record-only. Recognition reads the command
+  text, so a command assembled at run time is not recognised. If you ran
+  0.4.0, check `command_allowlist` in each profile's `config.yaml` for
+  `plugin_rule:` entries you did not add yourself.
 
 ## [0.4.0] - 2026-10-12
 
