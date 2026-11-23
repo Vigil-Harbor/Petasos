@@ -71,19 +71,21 @@ def hermes_surface(paths: Iterable[str], roots: Iterable[str] = ()) -> Guardrail
         )
     # Enabling still writes the plugin's entry when it grants or revokes
     # the tool-override permission (plugins.entries.petasos.allow_tool_override).
-    for flag in _prefixes("--allow-tool-override", "--a") + _prefixes(
-        "--no-allow-tool-override", "--n"
+    for full, shortest in (
+        ("--allow-tool-override", "--a"),
+        ("--no-allow-tool-override", "--n"),
     ):
-        commands.append(
-            CommandRule(
-                "settings",
-                ("hermes", "plugins", "enable"),
-                "hermes plugins enable --allow-tool-override",
-                name=_PLUGIN,
-                requires_flag=flag,
-                help_clears=False,
+        for flag in _prefixes(full, shortest):
+            commands.append(
+                CommandRule(
+                    "settings",
+                    ("hermes", "plugins", "enable"),
+                    f"hermes plugins enable {full}",
+                    name=_PLUGIN,
+                    requires_flag=flag,
+                    help_clears=False,
+                )
             )
-        )
     commands.append(
         CommandRule(
             "plugin",

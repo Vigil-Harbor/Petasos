@@ -247,9 +247,10 @@ def _one_command(
 def _asks_help(argv: tuple[str, ...]) -> bool:
     """True when a help flag comes before ``--`` and before a word that starts with ``#``.
 
-    After ``--`` the word is an operand. The parser drops a shell comment, so a
-    word that still starts with ``#`` was quoted or sat inside a substitution,
-    where a shell may still read it as a comment. Nothing after it counts.
+    After ``--`` the word is an operand. The parser does not model comments
+    and keeps every word, so a word starting with ``#`` may begin a comment
+    the program never receives. A help word after it does not count, which
+    can only keep a command from being cleared.
     """
     for word in argv[1:]:
         if word == "--" or word.startswith("#"):
@@ -455,9 +456,10 @@ def _rule_matches(argv: tuple[str, ...], rule: CommandRule) -> bool:
 def _targets(positionals: list[str]) -> list[str]:
     """The positionals before the first word that starts with ``#``.
 
-    The parser drops a shell comment, so such a word was quoted or sat inside
-    a substitution, where a shell may read it and the rest as a comment.
-    Neither it nor what follows is taken as naming a target.
+    The parser does not model comments and keeps every word, so such a word
+    may begin a comment that holds the rest. Neither it nor what follows is
+    taken as naming a target. This only decides whether a command with no
+    target matches; a word anywhere that names the plugin still matches.
     """
     for index, word in enumerate(positionals):
         if word.startswith("#"):

@@ -10,6 +10,7 @@ import pytest
 
 from petasos.guard.guardrail import recognize
 from petasos.guard.paths import normalize_path_text
+from petasos.guard.shell_parse import _parse
 from petasos.hermes.guardrail import hermes_surface
 
 if TYPE_CHECKING:
@@ -916,6 +917,7 @@ def test_invocation_recognition_leaves_reads_and_unrelated_programs(
     ("command", "kind"),
     [
         ("hermes config set command_allowlist x # --help", "settings"),
+        ("hermes config set command_allowlist x #-h", "settings"),
         ("hermes config set command_allowlist -- --help", "settings"),
         ("hermes config edit --help", "settings"),
         ("hermes config edit -h", "settings"),
@@ -960,20 +962,22 @@ def test_a_help_word_after_a_comment_or_operands_is_not_help(tmp_path: Path, com
 
 
 @pytest.mark.parametrize(
-    "command",
+    ("command", "flag"),
     [
-        "hermes plugins enable petasos --allow-tool-override",
-        "hermes plugins enable petasos --no-allow-tool-override",
-        "hermes plugins enable --allow-tool petasos",
-        "hermes plugins enable petasos --a",
-        "hermes plugins enable petasos --no-a",
+        ("hermes plugins enable petasos --allow-tool-override", "--allow-tool-override"),
+        ("hermes plugins enable petasos --no-allow-tool-override", "--no-allow-tool-override"),
+        ("hermes plugins enable --allow-tool petasos", "--allow-tool-override"),
+        ("hermes plugins enable petasos --a", "--allow-tool-override"),
+        ("hermes plugins enable petasos --no-a", "--no-allow-tool-override"),
     ],
 )
 def test_granting_or_revoking_tool_override_on_enable_is_a_change(
-    tmp_path: Path, command: str
+    tmp_path: Path, command: str, flag: str
 ) -> None:
     hit = _hit(tmp_path, "terminal", {"command": command})
     assert hit is not None and hit.kind == "settings", command
+    # A revocation is reported as one, not as the grant.
+    assert hit.target == f"hermes plugins enable {flag}", command
 
 
 @pytest.mark.parametrize(
@@ -996,6 +1000,9 @@ def test_a_config_key_matches_only_at_a_segment_boundary(tmp_path: Path, command
         ("hermes plugins update # note", "plugin"),
         ("hermes plugins update #note", "plugin"),
         ("hermes plugins update\t# note", "plugin"),
+        ("hermes plugins update kanban # petasos", "plugin"),
+        ("hermes approvals suggest --help # --apply", "settings"),
+        ("hermes config get approvals # hermes config set command_allowlist x", "settings"),
         ("echo hi # note\nhermes plugins disable petasos", "plugin"),
         ("echo hi # note; hermes plugins disable petasos", "plugin"),
         ("echo hi # note && hermes plugins disable petasos", "plugin"),
@@ -1009,9 +1016,9 @@ def test_a_config_key_matches_only_at_a_segment_boundary(tmp_path: Path, command
         ("echo $( (true); hermes plugins disable #x petasos)", "plugin"),
     ],
 )
-def test_a_shell_comment_runs_to_the_line_end_or_a_separator(
-    tmp_path: Path, command: str, kind: str
-) -> None:
+def test_a_hash_word_hides_no_word_after_it(tmp_path: Path, command: str, kind: str) -> None:
+    # Comments are not parsed: a word starting with ``#`` and the words after
+    # it are read like any others, so they can still make a change.
     hit = _hit(tmp_path, "terminal", {"command": command})
     assert hit is not None and hit.kind == kind, command
 
@@ -1019,16 +1026,55 @@ def test_a_shell_comment_runs_to_the_line_end_or_a_separator(
 @pytest.mark.parametrize(
     "command",
     [
-        "hermes approvals suggest --help # --apply",
-        "hermes plugins update kanban # petasos",
-        "hermes config get approvals # hermes config set command_allowlist x",
         "echo $(true) # hermes config set approvals x",
         "echo `true` # hermes config set approvals x",
         "# hermes plugins disable petasos",
     ],
 )
-def test_words_in_a_shell_comment_are_not_read(tmp_path: Path, command: str) -> None:
-    assert _hit(tmp_path, "terminal", {"command": command}) is None, command
+def test_a_command_written_after_a_hash_still_counts(tmp_path: Path, command: str) -> None:
+    assert _hit(tmp_path, "terminal", {"command": command}) is not None, command
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        'echo hi # say "a; b"\nhermes plugins disable petasos',
+        "echo hi # note 'a; b'\nhermes plugins disable petasos",
+    ],
+)
+def test_a_quoted_separator_after_a_hash_hides_no_later_line(tmp_path: Path, command: str) -> None:
+    hit = _hit(tmp_path, "terminal", {"command": command})
+    assert hit is not None and hit.kind == "plugin", command
+    assert ("hermes", "plugins", "disable", "petasos") in [s.argv for s in _parse(command)]
+
+
+@pytest.mark.parametrize(
+    ("argv", "kind"),
+    [
+        (["hermes", "plugins", "disable", "#x", "petasos"], "plugin"),
+        (["hermes", "approvals", "suggest", "#x", "--apply"], "settings"),
+    ],
+)
+def test_a_hash_argument_in_an_argv_list_is_kept(
+    tmp_path: Path, argv: list[str], kind: str
+) -> None:
+    assert [s.argv for s in _parse(" ".join(argv))] == [tuple(argv)]
+    hit = _hit(tmp_path, "terminal", {"command": argv})
+    assert hit is not None and hit.kind == kind, argv
+    words = ", ".join(repr(word) for word in argv)
+    script = f'python -c "import subprocess; subprocess.run([{words}])"'
+    hit = _hit(tmp_path, "terminal", {"command": script})
+    assert hit is not None and hit.kind == kind, script
+
+
+@pytest.mark.parametrize(
+    "command",
+    ["hermes plugins disable ''\\\n#x petasos", "hermes plugins disable '' \\\n#x petasos"],
+)
+def test_a_line_continuation_before_a_hash_word_keeps_it(tmp_path: Path, command: str) -> None:
+    assert [s.argv for s in _parse(command)] == [("hermes", "plugins", "disable", "#x", "petasos")]
+    hit = _hit(tmp_path, "terminal", {"command": command})
+    assert hit is not None and hit.kind == "plugin", command
 
 
 @pytest.mark.parametrize(
@@ -1040,10 +1086,10 @@ def test_words_in_a_shell_comment_are_not_read(tmp_path: Path, command: str) -> 
         "echo `hermes plugins update #`",
     ],
 )
-def test_a_comment_inside_a_substitution_is_not_a_plugin_name(
+def test_a_hash_word_inside_a_substitution_is_not_a_plugin_name(
     tmp_path: Path, command: str
 ) -> None:
-    # A shell reads ``#`` there as a comment, so no plugin is named and
+    # A shell may read ``#`` there as a comment, so no plugin is named and
     # every installed plugin is updated.
     hit = _hit(tmp_path, "terminal", {"command": command})
     assert hit is not None and hit.kind == "plugin", command

@@ -44,8 +44,6 @@ _WRAPPER_VALUES = {
 
 
 _DQ_ESCAPED = frozenset({"$", "`", '"', "\\", "\n"})
-# Characters that end a command, and so end a comment written before them.
-_COMMENT_ENDS = frozenset({"\n", ";", "|", "&", "(", ")", "`"})
 _EXECUTABLE_SUFFIXES = (".exe", ".cmd", ".bat", ".com")
 
 
@@ -114,10 +112,6 @@ def _parse(text: str) -> list[_Simple]:
     buf: list[str] = []
     quote = ""
     redirect = False
-    # One entry per open parenthesis, True for a ``$(`` substitution.
-    groups: list[bool] = []
-    substitutions = 0
-    backtick = False
     index = 0
     length = len(text)
 
@@ -189,28 +183,8 @@ def _parse(text: str) -> list[_Simple]:
             index += 2
             continue
         if char in {";", "|", "&", "(", ")", "`"}:
-            if char == "(":
-                opened = buf[-1:] == ["$"]
-                groups.append(opened)
-                substitutions += opened
-            elif char == ")" and groups:
-                substitutions -= groups.pop()
-            elif char == "`":
-                backtick = not backtick
             finish_command()
             index += 1
-            continue
-        if (
-            char == "#"
-            and not buf
-            and text[index - 1 : index] not in {"'", '"'}
-            and not backtick
-            and not substitutions
-        ):
-            # A word that starts with ``#`` begins a comment. It runs to the end
-            # of the line or to the next separator, which is read as usual.
-            while index < length and text[index] not in _COMMENT_ENDS:
-                index += 1
             continue
         if char in {">", "<"}:
             finish_word()

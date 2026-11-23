@@ -408,13 +408,14 @@ to `petasos.model._TIMEOUT_ERROR_PREFIX`. The ingestion head length moves from
   uninstall still are. A help flag no longer clears a command that writes
   Hermes's configuration, including `hermes plugins auto-update on|off`,
   `hermes plugins install petasos --enable` and `hermes plugins pack
-  install`, and a help word after `--` or after a word starting with `#`
-  is not read as help. On a shell line, a word starting with `#` begins a
-  comment that runs to the end of the line or the next command separator,
-  unless it is quoted or inside a substitution. There, a word starting
-  with `#` and the words after it do not name a plugin to update, so
-  `$(hermes plugins update # note)` updates every plugin; a quoted
-  `hermes plugins update '#name'` reads the same way. A configuration key
+  install`, and a help word after `--` is not read as help. Shell
+  comments are not parsed: a word starting with `#` and every word after
+  it are still read, so a command after a `#` is still recognised. Such a
+  word can only stop later words from loosening a decision: a help word
+  after it is not read as help, and it and the words after it do not name
+  a plugin to update, so `hermes plugins update # note`,
+  `$(hermes plugins update # note)` and `hermes plugins update '#name'`
+  update every plugin. A configuration key
   matches a guarded key only as a whole dotted segment
   (`approvals_backup` is not `approvals`). When a `write_file` call's
   `content`, or a `patch` call's `old_string`, `new_string` or `patch`, is

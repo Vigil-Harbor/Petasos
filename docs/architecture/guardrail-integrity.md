@@ -335,13 +335,20 @@ it got in.
     `hermes plugins install petasos --enable`,
     `hermes plugins auto-update on|off`, `hermes plugins pack install` and
     the other settings commands), which is a change with or without one. A
-    help word after `--` or after a word that starts with `#` is not
-    counted. On a shell line, a word that starts with `#` begins a comment
-    that runs to the end of the line or to the next `;`, `|`, `&`, `(`, `)`
-    or backtick; the words in it are not arguments, flags or help. A `#`
-    inside a word, in quotes, or inside a backtick or `$(...)` substitution
-    does not begin one. A configuration key matches a guarded key only as a
-    whole dotted segment, so `approvals_backup` is not `approvals`.
+    help word after `--` is not counted.
+
+    The recogniser does not parse shell comments, and text it cannot fully
+    model never removes a match. A word that starts with `#` stays a word,
+    and so do the words after it, on the same line and on later lines, in
+    shell text and in an argument list joined into text. Because a shell
+    may read such a word as the start of a comment, it can only stop later
+    words from loosening a decision: a help word after it does not count as
+    help, and it and the positionals after it do not name a target, so
+    `hermes plugins update # note` and `$(hermes plugins update # note)`
+    update every plugin. A word after it that names Petasos, or a flag such
+    as `--apply`, still counts. A configuration key matches a guarded key
+    only as a whole dotted segment, so `approvals_backup` is not
+    `approvals`.
 
   Reads that are not on the reader list now ask. That includes `sed` and
   `perl` even without `-i`, `awk`, editors (including a read-only `vim -R`),
