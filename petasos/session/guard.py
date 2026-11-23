@@ -481,9 +481,16 @@ _HERMES_VALUE_OPTIONS = frozenset(
 _HERMES_PROGRAMS = frozenset({"hermes", "ai.hermes", "hermes.exe", "ai.hermes.exe"})
 _HERMES_MODULES = frozenset({"hermes_cli", "hermes_cli.main"})
 # ``hermes config set|unset`` keys that hold a guardrail: the permanent approval
-# list, Petasos's own settings, and which plugins Hermes loads.
-_HERMES_GUARDRAIL_KEYS = ("command_allowlist", "petasos", "plugins")
-_HERMES_PLUGIN_VERBS = frozenset({"disable", "enable", "remove", "rm", "uninstall"})
+# list, Hermes's approval settings, Petasos's own settings, and which plugins
+# Hermes loads.
+_HERMES_GUARDRAIL_KEYS = ("command_allowlist", "approvals", "petasos", "plugins")
+# Keys matched whatever program runs ``config set|unset`` (see _keyed_config_change).
+_KEYED_GUARDRAIL_KEYS = ("command_allowlist", "approvals", "petasos")
+_HERMES_PLUGIN_VERBS = frozenset({"disable", "remove", "rm", "uninstall"})
+_HERMES_HELP_OPTIONS = frozenset({"--help", "-h"})
+# Upper bound on argument words examined per command, so a long command line
+# costs linear time. Reaching it is treated as a configuration change.
+_HERMES_SCAN_BUDGET = 100_000
 _HERMES_FLAG_ROUTES = (
     (("approvals", "suggest"), "--apply", 3),
     (("setup",), "--reset", 5),
@@ -491,6 +498,13 @@ _HERMES_FLAG_ROUTES = (
     (("profile", "update"), "--force-config", 3),
 )
 _SHELL_BREAKS = ";&|()\n"
+# Write-tool parameters that carry file content or prose, not the file written.
+_SELFMOD_CONTENT_KEYS = frozenset(
+    {
+        "content", "contents", "text", "body", "data", "message", "new_string",
+        "old_string", "new_text", "old_text", "patch", "diff", "description",
+    }
+)  # fmt: skip
 
 
 def _hermes_invocation(words: list[str], index: int) -> bool:
@@ -525,6 +539,9 @@ def _hermes_route(args: list[str]) -> str | None:
             options.append(arg.partition("=")[0])
         elif arg:
             positionals.append(arg)
+    if _HERMES_HELP_OPTIONS.intersection(options):
+        # Hermes prints usage and exits; nothing is written.
+        return None
     head = [word.casefold() for word in positionals[:3]]
     if head[:2] in (["config", "edit"], ["config", "migrate"]):
         return "hermes " + " ".join(head[:2])
@@ -551,17 +568,19 @@ def _hermes_route(args: list[str]) -> str | None:
 
 
 def _keyed_config_change(args: list[str]) -> str | None:
-    """``config set|unset`` on the approval list or Petasos's settings, whatever runs it.
+    """``config set|unset`` on an approval or Petasos setting, whatever program runs it.
 
     A program word this release cannot resolve (``$H config set ...``, an alias)
-    still names these keys. Only these two keys are matched this way: they are
-    specific enough that another program's ``config set`` does not carry them.
+    still names these keys. Only these keys are matched this way: they are
+    specific enough that another program's ``config set`` rarely carries them.
+    Another program that does (``git config set petasos.x``) is flagged too,
+    because exempting a program by name would let an alias of that name through.
     """
     positionals = [arg.strip("`") for arg in args if arg and not arg.startswith("-")]
     if len(positionals) < 2 or positionals[0].casefold() not in ("set", "unset"):
         return None
     key = positionals[1].casefold()
-    for guarded in ("command_allowlist", "petasos"):
+    for guarded in _KEYED_GUARDRAIL_KEYS:
         if key == guarded or key.startswith(guarded + "."):
             return f"config {positionals[0].casefold()} {guarded}"
     return None
@@ -577,6 +596,7 @@ def _hermes_config_change(command: str) -> str | None:
     Targets describe the operation, never its potentially sensitive value.
     """
     pending = [(command, 0)]
+    budget = _HERMES_SCAN_BUDGET
     joined = command.replace("\\\n", "")
     if "\\" in joined:
         # Windows paths: after the command as written, read it once more with
@@ -610,6 +630,9 @@ def _hermes_config_change(command: str) -> str | None:
             for arg in words[index + 1 :]:
                 if arg and all(char in _SHELL_BREAKS for char in arg):
                     break
+                budget -= 1
+                if budget < 0:
+                    return "hermes configuration (command too long to inspect)"
                 tail.append(arg)
             route = _hermes_route(tail) if hermes else _keyed_config_change(tail)
             if route is not None:
@@ -966,11 +989,14 @@ class ToolCallGuard:
 
             top_level_strs: list[str] = []
             all_parts: list[str] = []
-            for value in tool_params.values():
+            for key, value in tool_params.items():
                 if value is None:
                     continue
                 if isinstance(value, str):
-                    top_level_strs.append(value)
+                    # A content field that holds the path names it; it does not
+                    # write it. It still counts as a reference below.
+                    if key not in _SELFMOD_CONTENT_KEYS:
+                        top_level_strs.append(value)
                     all_parts.append(value)
                 else:
                     all_parts.extend(self._extract_leaf_strings(value))

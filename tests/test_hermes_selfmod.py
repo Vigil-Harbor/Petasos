@@ -167,6 +167,9 @@ async def test_flag_abbreviations(
         "hermes profile update demo",
         "hermes backup --quick",
         "other-hermes config set other_key '[]'",
+        "hermes config edit --help",
+        "hermes plugins disable petasos -h",
+        "hermes plugins enable petasos",
     ],
 )
 async def test_read_only_and_unrelated_commands(guard: ToolCallGuard, command: str) -> None:
@@ -322,7 +325,7 @@ def test_selfmod_does_not_waive_other_blocks(
 
 
 @pytest.mark.parametrize("posture", ["block", "approve"])
-@pytest.mark.parametrize("form", ["content", "read", "redirect"])
+@pytest.mark.parametrize("form", ["content", "content-exact", "read", "redirect"])
 def test_config_refs_stay_record_only(
     plugin: Any, guard: ToolCallGuard, monkeypatch: pytest.MonkeyPatch, posture: str, form: str
 ) -> None:
@@ -331,6 +334,8 @@ def test_config_refs_stay_record_only(
     owned = next(iter(guard._selfmod_owned_cache[1]))
     if form == "content":
         tool, args = "write_file", {"path": "notes.txt", "content": f"See {owned}"}
+    elif form == "content-exact":
+        tool, args = "write_file", {"path": "notes.txt", "content": owned}
     else:
         command = (
             f"cat {shlex.quote(owned)}" if form == "read" else f"printf ok >> {shlex.quote(owned)}"
@@ -381,6 +386,10 @@ _VARIANT_COMMANDS = [
     "alias h=hermes; h config set command_allowlist x",
     "$HERMES_BIN -p work config unset command_allowlist",
     "h config set petasos.tool_guard_enabled false",
+    # Hermes's approval settings.
+    "hermes config set approvals.timeout 120",
+    "hermes config unset approvals",
+    "$H config set approvals.mode off",
     "other-hermes config set command_allowlist '[]'",
 ]
 
@@ -393,3 +402,35 @@ async def test_other_spellings_and_guardrail_keys(guard: ToolCallGuard, command:
         assert result.selfmod_finding is not None, wrapped
         assert result.selfmod_finding.rule_id == _WRITE_RULE
         assert result.selfmod_target is not None
+
+
+_INVOCATION_FORMS = [
+    "hermes.exe",
+    r"C:\Tools\hermes.exe",
+    "ai.hermes",
+    "python -m hermes_cli.main",
+    "python3.11 -m hermes_cli",
+    "python -u -m hermes_cli.main",
+    "python3 -X dev -B -m hermes_cli",
+    "python -um hermes_cli.main",
+    "/opt/venv/bin/python -mhermes_cli.main",
+]
+
+
+@pytest.mark.parametrize("program", _INVOCATION_FORMS)
+async def test_invocation_forms_name_the_hermes_route(guard: ToolCallGuard, program: str) -> None:
+    """Each spelling is read as Hermes itself, not through the keyed fallback."""
+    result = await guard.evaluate("terminal", {"command": f"{program} config edit"}, "forms")
+    assert result.selfmod_target == "hermes config edit"
+
+
+async def test_long_commands_stay_linear(guard: ToolCallGuard) -> None:
+    """Many candidate words cost a bounded amount of work."""
+    result = await guard.evaluate("terminal", {"command": "echo " + "config " * 400}, "long")
+    assert result.selfmod_finding is None
+    started = time.monotonic()
+    result = await guard.evaluate("terminal", {"command": "echo " + "config " * 20000}, "longer")
+    assert time.monotonic() - started < 5.0
+    assert result.selfmod_finding is not None
+    assert result.selfmod_finding.rule_id == _WRITE_RULE
+    assert result.selfmod_target == "hermes configuration (command too long to inspect)"
