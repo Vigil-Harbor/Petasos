@@ -1209,12 +1209,46 @@ def test_other_windows_program_words_are_a_change_on_windows(
     assert _hit(tmp_path, "terminal", {"command": command}) is not None, command
 
 
-def test_enable_is_cleared_by_help_unless_it_writes_the_override(tmp_path: Path) -> None:
-    assert _hit(tmp_path, "terminal", {"command": "hermes plugins enable all --help"}) is None
+@pytest.mark.parametrize(
+    "command",
+    [
+        "hermes plugins enable all --help",
+        "hermes plugins enable all -h",
+        "hermes plugins enable petasos==1 --help",
+        "hermes plugins enable petasos --help",
+        "hermes plugins enable -a -h",
+        "hermes plugins enable petasos other --help",
+    ],
+)
+def test_help_does_not_clear_enable(tmp_path: Path, command: str) -> None:
+    hit = _hit(tmp_path, "terminal", {"command": command})
+    assert hit is not None and hit.target == "hermes plugins enable", command
+
+
+def test_help_with_the_override_flag_is_still_the_override_write(tmp_path: Path) -> None:
     for flag in ("--allow-tool-override", "--no-allow-tool-override"):
         command = f"hermes plugins enable all {flag} --help"
         hit = _hit(tmp_path, "terminal", {"command": command})
         assert hit is not None and hit.target == f"hermes plugins enable {flag}", command
+
+
+def test_a_very_long_command_is_not_plain(tmp_path: Path) -> None:
+    padding = " ".join(["x"] * 3000)
+    text = f"hermes plugins enable petasos {padding}"
+    assert guardrail._plain_command(text, windows=False) is None
+    assert _hit(tmp_path, "terminal", {"command": text}) is not None
+
+
+def test_a_very_long_text_is_not_split_for_the_plain_check() -> None:
+    class _NoSplit(str):
+        def strip(self, chars: str | None = None) -> str:
+            return _NoSplit(str.strip(self, chars))
+
+        def split(self, sep: str | None = None, maxsplit: int = -1) -> list[str]:
+            raise AssertionError("split called on long text")
+
+    long_text = _NoSplit("hermes plugins enable petasos " + "y " * 5000)
+    assert guardrail._plain_command(long_text, windows=False) is None
 
 
 def test_command_rule_fields_keep_their_positions() -> None:

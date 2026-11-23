@@ -89,13 +89,15 @@ def hermes_surface(paths: Iterable[str], roots: Iterable[str] = ()) -> Guardrail
     # other spelling that names it or everything (``all``, ``-a``, ``*``, a
     # version, an extra, a source or a built file, another plugin beside it,
     # ``--force``, another case, a global option) may install different code
-    # or enable more, so it is a change.
+    # or enable more, so it is a change. Enabling writes ``plugins.enabled``,
+    # so a help flag does not clear it.
     commands.append(
         CommandRule(
             "plugin",
             ("hermes", "plugins", "enable"),
             "hermes plugins enable",
             name=_PLUGIN,
+            help_clears=False,
             except_exact=("hermes", "plugins", "enable", _PLUGIN),
         )
     )

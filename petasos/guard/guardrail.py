@@ -93,6 +93,8 @@ _TREE_TOOLS = frozenset({"chmod", "delete_file", "move_file"})
 # A plain command (see ``_plain_command``): words of plain characters, and a
 # program word that is one such word or an absolute path of them.
 _PLAIN_WORD = re.compile(r"[A-Za-z0-9._-]+")
+# A plain command is short; longer text is never one and is not split.
+_PLAIN_MAX_CHARS = 4096
 _POSIX_PROGRAM = re.compile(r"/(?:[A-Za-z0-9._-]+/)*([A-Za-z0-9._-]+)")
 _WINDOWS_PROGRAM = re.compile(r"[A-Za-z]:([\\/])(?:[A-Za-z0-9._-]+\1)*([A-Za-z0-9._-]+)")
 
@@ -206,9 +208,13 @@ def _plain_command(text: str, *, windows: bool) -> tuple[str, ...] | None:
     for its last part, compared exactly: the caller compares the result to
     whole words, so ``hermes.exe`` or ``Hermes`` is not ``hermes``. Anything
     else, a separator, quoting, expansion, a comment or a here-document
-    included, gives ``None``.
+    included, gives ``None``, and so does text longer than
+    ``_PLAIN_MAX_CHARS`` after trimming, which is not split.
     """
-    words = text.strip(" \t\n").split(" ")
+    trimmed = text.strip(" \t\n")
+    if len(trimmed) > _PLAIN_MAX_CHARS:
+        return None
+    words = trimmed.split(" ")
     if len(words) < 2 or not all(_PLAIN_WORD.fullmatch(word) for word in words[1:]):
         return None
     program = words[0]

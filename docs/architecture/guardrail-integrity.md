@@ -333,8 +333,8 @@ it got in.
     or the path passed to any other call is a change. `hermes` or `petasos`
     with `--help` or `-h` is not a change, unless the command writes
     Hermes's configuration (`hermes config set|unset|edit|migrate`,
-    `hermes import`, `hermes plugins disable petasos`,
-    `hermes plugins enable petasos --allow-tool-override`,
+    `hermes import`, `hermes plugins disable petasos`, any
+    `hermes plugins enable` that names the plugin or everything,
     `hermes plugins install petasos --enable`,
     `hermes plugins auto-update on|off`, `hermes plugins pack install` and
     the other settings commands), which is a change with or without one. A
