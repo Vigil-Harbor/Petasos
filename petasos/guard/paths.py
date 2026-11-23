@@ -27,6 +27,13 @@ _ADMIN_SHARE = re.compile(
     r"(?://\?/UNC/|//)(?:localhost|127(?:\.\d{1,3}){3})/([A-Za-z])\$(/.*)?", re.IGNORECASE
 )
 
+# A variable a word names, written $NAME or ${NAME}.
+_VAR_NAME = re.compile(r"\$\{?([A-Za-z_][A-Za-z0-9_]*)")
+
+# The word as written, the values of the variables it names, the working
+# directory, HERMES_HOME, HOME, ``above`` and ``hedge``.
+_SeenKey = tuple[str, tuple[tuple[str, str | None], ...], str, str, str, bool, bool]
+
 
 @dataclass(frozen=True, slots=True)
 class _Owned:
@@ -36,7 +43,7 @@ class _Owned:
     roots: tuple[str, ...]
     # Answers already worked out during one recognition. A long line is
     # judged from several starting words, and the same words come round again.
-    seen: dict[tuple[str, str, str, str, bool, bool], GuardrailHit | None] = field(
+    seen: dict[_SeenKey, GuardrailHit | None] = field(
         default_factory=dict, compare=False, repr=False
     )
 
@@ -148,9 +155,15 @@ def _match_path(
     path, and a wildcard there that covers one, against the working
     directory only.
     """
-    # Everything the answer is worked out from, so a changed variable is a new question.
-    key = (
-        _expand_vars(raw, env),
+    # Everything the answer is worked out from, so a changed variable is a new
+    # question. The word stays as written: braces and quotes are read before its
+    # variables, so two words that expand alike can still name different paths.
+    # A brace group can join a name to the text after it, so names are read from
+    # each brace reading.
+    named = {name for variant in _brace_variants(raw) for name in _VAR_NAME.findall(variant)}
+    key: _SeenKey = (
+        raw,
+        tuple(sorted((name, env.get(name)) for name in named)),
         cwd,
         env.get("HERMES_HOME", ""),
         env.get("HOME", ""),

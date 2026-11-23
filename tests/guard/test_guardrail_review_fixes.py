@@ -164,3 +164,48 @@ def test_a_remembered_answer_does_not_outlive_a_changed_variable(tmp_path: Path)
     env["HOME"] = str(home)
     assert paths._match_path("elsewhere.txt", owned, env, str(tmp_path)) is None
     assert paths._match_path("config.yaml", owned, env, str(tmp_path)) is not None
+
+
+def test_a_remembered_relative_name_follows_a_changed_home(tmp_path: Path) -> None:
+    """The same relative name, asked again after only HOME or HERMES_HOME moved."""
+    from petasos.guard import paths
+
+    home = tmp_path / "owned"
+    home.mkdir()
+    config = home / "config.yaml"
+    owned = paths._Owned({paths.normalize_path_text(str(config)): "settings"}, ())
+    cwd = str(tmp_path / "work")
+    for key in ("HOME", "HERMES_HOME"):
+        owned.seen.clear()
+        env = {key: str(tmp_path / "other")}
+        assert paths._match_path("config.yaml", owned, env, cwd) is None
+        env[key] = str(home)
+        assert paths._match_path("config.yaml", owned, env, cwd) is not None
+
+
+def test_words_that_expand_alike_are_not_one_question(tmp_path: Path) -> None:
+    """A brace group written out and one held in a variable name different paths."""
+    from petasos.guard import paths
+
+    sample = tmp_path / "sample.txt"
+    owned = paths._Owned({paths.normalize_path_text(str(sample)): "settings"}, ())
+    env = {"LABEL": "{sample,other}.txt"}
+    cwd = str(tmp_path)
+    assert paths._match_path("{sample,other}.txt", owned, env, cwd, hedge=False) is not None
+    # The shell does not brace-expand a variable's value, so this names no protected file.
+    assert paths._match_path("$LABEL", owned, env, cwd, hedge=False) is None
+    owned.seen.clear()
+    assert paths._match_path("$LABEL", owned, env, cwd, hedge=False) is None
+    assert paths._match_path("{sample,other}.txt", owned, env, cwd, hedge=False) is not None
+
+
+def test_a_name_joined_by_a_brace_group_is_part_of_the_question(tmp_path: Path) -> None:
+    """``$A{B,C}`` reads ``$AB`` and ``$AC``, so a change to ``AB`` is a new question."""
+    from petasos.guard import paths
+
+    config = tmp_path / "config.yaml"
+    owned = paths._Owned({paths.normalize_path_text(str(config)): "settings"}, ())
+    env = {"AB": str(tmp_path / "elsewhere.txt")}
+    assert paths._match_path("$A{B,C}", owned, env, str(tmp_path), hedge=False) is None
+    env["AB"] = str(config)
+    assert paths._match_path("$A{B,C}", owned, env, str(tmp_path), hedge=False) is not None
