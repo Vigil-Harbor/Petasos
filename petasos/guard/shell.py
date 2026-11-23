@@ -19,10 +19,8 @@ from petasos.guard.native_shell import _native_parse, _native_reads, _native_scr
 from petasos.guard.paths import _expand_path, _Owned
 from petasos.guard.program import _code_names_path, _embedded, _strip_python_comments
 from petasos.guard.shell_parse import (
-    _HEREDOC_OPEN,
     _WRAPPERS,
     _assignment,
-    _file_name,
     _parse,
     _program,
     _Simple,
@@ -46,8 +44,7 @@ _SHELLS = frozenset({"ash", "bash", "dash", "ksh", "sh", "zsh"})
 _ALL_NAMES = frozenset({"*", "--all", "-a", "all"})
 _TRUTHY = frozenset({"1", "true", "yes", "on"})
 _MAX_HEREDOCS = 8
-# A program word the shell reads as written: no quoting, expansion or glob.
-_PLAIN_PATH = re.compile(r"[A-Za-z0-9._~:/\\+-]+")
+_HEREDOC_OPEN = re.compile(r"""<<-?[ \t]*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\1""")
 # These programs have known meanings here even though they have no command
 # rule. In particular git/npm config writes are not host settings writes.
 _KNOWN_PROGRAMS = (
@@ -68,20 +65,18 @@ def _command_change(
     env: Mapping[str, str],
     cwd: str,
     *,
-    direct: bool = False,
+    plain: tuple[str, ...] | None = None,
 ) -> GuardrailHit | None:
     """The first guardrail change ``text`` makes when a shell runs it.
 
-    ``direct`` says ``text`` is the tool call's own shell text, as written.
-    Text rebuilt from an argument list or taken from program code is not.
+    ``plain`` is the whole tool call's command text read as one plain
+    command (see ``recognize``), or ``None``. Only a rule's ``except_exact``
+    consults it.
     """
     if len(text) > _MAX_CHARS:
         text = text[:_MAX_CHARS]
-        # The last command may have been cut short.
-        direct = False
     rules = library_rules() + surface.commands
-    commands = _parse(text, top=direct)
-    hit = _each_command(commands, owned, surface, rules, env, cwd, depth=0)
+    hit = _each_command(_parse(text), owned, surface, rules, env, cwd, depth=0, plain=plain)
     if hit is not None:
         return hit
     return _heredoc_hit(text, owned, surface, env, cwd)
@@ -96,10 +91,11 @@ def _each_command(
     cwd: str,
     *,
     depth: int,
+    plain: tuple[str, ...] | None = None,
 ) -> GuardrailHit | None:
     """Judge commands in order. A ``cd`` moves the directory the later ones run in."""
     for command in commands[:_MAX_COMMANDS]:
-        hit = _one_command(command, owned, surface, rules, env, cwd, depth=depth)
+        hit = _one_command(command, owned, surface, rules, env, cwd, depth=depth, plain=plain)
         if hit is not None:
             return hit
         cwd = _after_cd(command, env, cwd)
@@ -187,9 +183,10 @@ def _one_command(
     *,
     depth: int,
     known_program: bool = False,
+    plain: tuple[str, ...] | None = None,
 ) -> GuardrailHit | None:
-    stripped, assignments = _strip_wrappers(command.argv)
-    prepared = _invocation(stripped, surface)
+    prepared, assignments = _strip_wrappers(command.argv)
+    prepared = _invocation(prepared, surface)
     program = _program(prepared[0]) if prepared else ""
     helping = program in {"hermes", "petasos"} and _asks_help(prepared)
     if not helping:
@@ -214,7 +211,7 @@ def _one_command(
     for command_rule in rules:
         if helping and command_rule.help_clears:
             continue
-        if command_rule.except_exact and _exactly(command, command_rule.except_exact):
+        if command_rule.except_exact and plain == command_rule.except_exact:
             continue
         candidate = rule_argv
         fallback = unknown and command_rule.unknown_program and command_rule.tail is not None
@@ -257,33 +254,6 @@ def _one_command(
     if found is not None or program in _TEXT_ONLY or program in _READERS:
         return found
     return _started(prepared, owned, surface, rules, env, cwd, depth)
-
-
-def _exactly(command: _Simple, words: tuple[str, ...]) -> bool:
-    """True when ``command`` was written as ``words`` and nothing else.
-
-    The command must be direct: one of the tool call's own top-level shell
-    commands, not one inside a substitution, a subshell or a here-document,
-    nor one read again from ``sh -c``, ``eval``, an argument list or program
-    code. Its source text, without surrounding blanks, must be the words
-    joined by single spaces. The program word may instead be a path whose
-    last part, by this host's separators, is the program, compared case
-    included and without a suffix. A wrapper, an assignment, a redirect,
-    quoting, an empty argument, an alias or a ``python -m`` form never
-    matches. A command rebuilt from part of another one has no source text
-    and never matches.
-    """
-    program, space, rest = command.source.partition(" ")
-    return (
-        command.direct
-        and bool(space)
-        and rest == " ".join(words[1:])
-        and _PLAIN_PATH.fullmatch(program) is not None
-        and _file_name(program) == words[0]
-        and command.argv == (program, *words[1:])
-        and not command.assignments
-        and not command.redirects
-    )
 
 
 def _asks_help(argv: tuple[str, ...]) -> bool:

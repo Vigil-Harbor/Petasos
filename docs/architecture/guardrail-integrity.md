@@ -34,8 +34,8 @@ happened:
   plugin lists, safe mode, the hook timeout, the profile pointer, and the
   commands that change them (`hermes plugins disable|remove|uninstall`,
   `--safe-mode`, `hermes gateway restart`, `hermes config set` on those keys).
-  Enabling the plugin with exactly `hermes plugins enable petasos` is not a
-  change, unless the same command grants or revokes its tool-override
+  Enabling the plugin with exactly `hermes plugins enable petasos`, as the
+  tool call's whole command text, is not a change, unless the same command grants or revokes its tool-override
   permission (`--allow-tool-override`, `--no-allow-tool-override`), which
   Hermes writes into Petasos's entry. Any other `enable` that names the
   plugin or everything (`all`, a version, a source, another plugin beside

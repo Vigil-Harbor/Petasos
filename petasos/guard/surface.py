@@ -54,9 +54,11 @@ class CommandRule:
     # off for a command that writes its configuration: a word read as a help
     # flag is not trusted to stop that write.
     help_clears: bool = True
-    # The one command this rule leaves alone, word for word. Every word the
-    # program receives counts, global options included; only the program is
-    # compared by its file name. Any other spelling still matches.
+    # The one command this rule leaves alone, and only when it is a tool
+    # call's whole command text, given as text: exactly these words, single
+    # spaces between them, the program word possibly an absolute path to it
+    # (see ``recognize``). Any other spelling, or these words among other
+    # commands, inside a script or as an argument list, still matches.
     except_exact: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:

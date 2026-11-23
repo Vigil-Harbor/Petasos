@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import threading
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -89,6 +90,11 @@ _WRITE_TOOLS = frozenset(
 # Tools that remove or move a whole directory, so a directory that holds a
 # protected path counts.
 _TREE_TOOLS = frozenset({"chmod", "delete_file", "move_file"})
+# A plain command (see ``_plain_command``): words of plain characters, and a
+# program word that is one such word or an absolute path of them.
+_PLAIN_WORD = re.compile(r"[A-Za-z0-9._-]+")
+_POSIX_PROGRAM = re.compile(r"/(?:[A-Za-z0-9._-]+/)*([A-Za-z0-9._-]+)")
+_WINDOWS_PROGRAM = re.compile(r"[A-Za-z]:([\\/])(?:[A-Za-z0-9._-]+\1)*([A-Za-z0-9._-]+)")
 
 
 @dataclass(frozen=True)
@@ -159,8 +165,10 @@ def recognize(
         return path_hit
     if _program(tool) not in host.command_tools and tool not in host.command_tools:
         return None
+    windows = os.name == "nt"
     for text, written in _command_texts(params):
-        hit = _command_change(text, owned, host, env, work, direct=written)
+        plain = _plain_command(text, windows=windows) if written else None
+        hit = _command_change(text, owned, host, env, work, plain=plain)
         if hit is not None:
             return hit
     return None
@@ -186,10 +194,39 @@ def _path_change(
     return None
 
 
-def _command_texts(params: Mapping[str, object]) -> list[tuple[str, bool]]:
-    """Each command text, and whether it is shell text as the call wrote it.
+def _plain_command(text: str, *, windows: bool) -> tuple[str, ...] | None:
+    """The words of ``text`` when the whole text is one plain command, else ``None``.
 
-    An argument list is joined into text, which is not how it was written.
+    Only blanks, tabs and newlines around the text are removed. What is left
+    must be words of letters, digits, ``.``, ``_`` and ``-`` separated by
+    single spaces, at least two of them. The program word may instead be an
+    absolute path of those characters (``/opt/hermes/bin/hermes``), and on a
+    Windows host also a drive path with a separator after the colon
+    (``C:\\Tools\\hermes``, ``C:/Tools/hermes``). Such a program word stands
+    for its last part, compared exactly: the caller compares the result to
+    whole words, so ``hermes.exe`` or ``Hermes`` is not ``hermes``. Anything
+    else, a separator, quoting, expansion, a comment or a here-document
+    included, gives ``None``.
+    """
+    words = text.strip(" \t\n").split(" ")
+    if len(words) < 2 or not all(_PLAIN_WORD.fullmatch(word) for word in words[1:]):
+        return None
+    program = words[0]
+    if _PLAIN_WORD.fullmatch(program):
+        return tuple(words)
+    found = _POSIX_PROGRAM.fullmatch(program)
+    if found is not None:
+        return (found.group(1), *words[1:])
+    found = _WINDOWS_PROGRAM.fullmatch(program) if windows else None
+    if found is not None:
+        return (found.group(2), *words[1:])
+    return None
+
+
+def _command_texts(params: Mapping[str, object]) -> list[tuple[str, bool]]:
+    """Each command text, and whether the call gave it as text.
+
+    An argument list is joined into text, which the call did not write.
     """
     texts: list[tuple[str, bool]] = []
     for key, value in params.items():

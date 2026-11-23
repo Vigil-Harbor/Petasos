@@ -409,10 +409,14 @@ to `petasos.model._TIMEOUT_ERROR_PREFIX`. The ingestion head length moves from
   that names the plugin or everything is still a change: `all`, `-a`,
   `*`, a version, an extra, a source or a built file, another plugin
   beside it, `--force`, another case, or a global option such as `-v` or
-  `-p`. The plain command must also be one of the tool call's own shell
-  commands: run through `sh -c`, `eval`, a command substitution, a
-  subshell, a here-document, an argument list or program code, it is a
-  change. A help flag no longer clears a command that writes
+  `-p`. The plain command must also be the tool call's whole command
+  text, given as text, with only surrounding blanks and newlines removed;
+  the program may be an absolute path to `hermes` (on Windows also a
+  drive path such as `C:\Tools\hermes`). After `cd` or beside any other
+  command, in a function, a group or a subshell, through `sh -c`, `eval`,
+  a substitution or a here-document, with a comment, quoting or extra
+  spaces, as an argument list or in program code, it is a change. A help
+  flag no longer clears a command that writes
   Hermes's configuration, including `hermes plugins auto-update on|off`,
   `hermes plugins install petasos --enable` and `hermes plugins pack
   install`, and a help word after `--` is not read as help. Shell
