@@ -44,6 +44,8 @@ _SHELLS = frozenset({"ash", "bash", "dash", "ksh", "sh", "zsh"})
 _ALL_NAMES = frozenset({"*", "--all", "-a", "all"})
 _TRUTHY = frozenset({"1", "true", "yes", "on"})
 _MAX_HEREDOCS = 8
+# A program word the shell reads as written: no quoting, expansion or glob.
+_PLAIN_PATH = re.compile(r"[A-Za-z0-9._~:/\\+-]+")
 _HEREDOC_OPEN = re.compile(r"""<<-?[ \t]*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\1""")
 # These programs have known meanings here even though they have no command
 # rule. In particular git/npm config writes are not host settings writes.
@@ -201,7 +203,7 @@ def _one_command(
     for command_rule in rules:
         if helping and command_rule.help_clears:
             continue
-        if command_rule.except_exact and _exactly(stripped, command_rule.except_exact):
+        if command_rule.except_exact and _exactly(command, command_rule.except_exact):
             continue
         candidate = rule_argv
         fallback = unknown and command_rule.unknown_program and command_rule.tail is not None
@@ -246,18 +248,25 @@ def _one_command(
     return _started(prepared, owned, surface, rules, env, cwd, depth)
 
 
-def _exactly(argv: tuple[str, ...], words: tuple[str, ...]) -> bool:
-    """True when ``argv`` is ``words`` and nothing else.
+def _exactly(command: _Simple, words: tuple[str, ...]) -> bool:
+    """True when ``command`` was written as ``words`` and nothing else.
 
-    ``argv`` is the command as written, before a host program form is
-    canonicalised, so ``python -m`` and other aliases never match. The
-    program is compared by its file name; every later word must be equal,
-    case included.
+    The command's own source text, without surrounding blanks, must be the
+    words joined by single spaces. The program word may instead be a POSIX or
+    Windows path whose last part is the program, compared case included and
+    without a suffix. A wrapper, an assignment, a redirect, quoting, an empty
+    argument, an alias or a ``python -m`` form never matches. A command
+    rebuilt from part of another one has no source text and never matches.
     """
+    program, space, rest = command.source.partition(" ")
     return (
-        len(argv) == len(words)
-        and _program(argv[0]) == words[0].casefold()
-        and argv[1:] == words[1:]
+        bool(space)
+        and rest == " ".join(words[1:])
+        and _PLAIN_PATH.fullmatch(program) is not None
+        and re.split(r"[/\\]", program)[-1] == words[0]
+        and command.argv == (program, *words[1:])
+        and not command.assignments
+        and not command.redirects
     )
 
 
@@ -497,11 +506,32 @@ def _names_plugin(word: str, name: str) -> bool:
         return True
     if "#" in word and word.rsplit("#", 1)[-1].strip("/").casefold() == wanted:
         return True
-    for piece in (folded, folded.rstrip("/").rsplit("/", 1)[-1]):
+    for piece in (folded, folded.rstrip("/").rsplit("/", 1)[-1], *_repository(folded)):
         head = _NAME_END.split(piece, maxsplit=1)[0].removesuffix(".git")
         if head == wanted or re.match(re.escape(wanted) + r"-\d", head):
             return True
     return False
+
+
+def _repository(source: str) -> tuple[str, str]:
+    """The last part of a source's repository path, with its revision set aside.
+
+    A revision follows the repository after ``@`` or ``#`` and may itself
+    hold ``/`` (``.../petasos@feature/x``). The path starts after a URL's
+    host or an scp-style ``host:``, so a user before the host is not taken
+    for a revision. Both the first ``@`` or ``#`` in the path and pip's
+    reading, the fragment and then the last ``@``, are tried.
+    """
+    scheme = source.find("://")
+    if scheme >= 0:
+        slash = source.find("/", scheme + 3)
+        path = source[slash:] if slash >= 0 else ""
+    else:
+        colon, slash = source.find(":"), source.find("/")
+        path = source[colon + 1 :] if colon >= 0 and (slash < 0 or colon < slash) else source
+    first = re.split(r"[@#]", path, maxsplit=1)[0]
+    last = path.split("#", 1)[0].rsplit("@", 1)[0]
+    return first.rstrip("/").rsplit("/", 1)[-1], last.rstrip("/").rsplit("/", 1)[-1]
 
 
 def _env_hit(

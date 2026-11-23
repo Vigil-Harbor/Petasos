@@ -52,6 +52,9 @@ class _Simple:
     argv: tuple[str, ...]
     redirects: tuple[str, ...]
     assignments: tuple[tuple[str, str], ...]
+    # The command's text as written, from its first word to its end, without
+    # surrounding blanks. Empty for a command this module did not read.
+    source: str = ""
 
 
 def _strip_wrappers(
@@ -114,6 +117,8 @@ def _parse(text: str) -> list[_Simple]:
     redirect = False
     index = 0
     length = len(text)
+    # Where the current command's text begins, once it has a word or redirect.
+    start: int | None = None
 
     def finish_word() -> None:
         nonlocal redirect
@@ -128,14 +133,16 @@ def _parse(text: str) -> list[_Simple]:
         words.append(word)
 
     def finish_command() -> None:
-        nonlocal redirect
+        nonlocal redirect, start
         finish_word()
         if words or redirects:
             assignments, argv = _leading_assignments(words)
-            commands.append(_Simple(tuple(argv), tuple(redirects), tuple(assignments)))
+            source = text[start:index].strip() if start is not None else ""
+            commands.append(_Simple(tuple(argv), tuple(redirects), tuple(assignments), source))
         words.clear()
         redirects.clear()
         redirect = False
+        start = None
 
     while index < length and len(commands) < _MAX_COMMANDS:
         char = text[index]
@@ -154,6 +161,8 @@ def _parse(text: str) -> list[_Simple]:
             buf.append(char)
             index += 1
             continue
+        if start is None and char not in {" ", "\t", "\n", ";", "|", "&", "(", ")", "`"}:
+            start = index
         if char == "\\" and index + 1 < length:
             nxt = text[index + 1]
             # A pasted Windows drive path is also a possible program word on

@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import os
 import time
+from types import SimpleNamespace
 from typing import TYPE_CHECKING
 
 import pytest
 
+from petasos.guard import shell_parse
 from petasos.guard.guardrail import recognize
 from petasos.guard.paths import normalize_path_text
 from petasos.guard.shell_parse import _parse
@@ -1013,6 +1015,50 @@ def test_granting_or_revoking_tool_override_on_enable_is_a_change(
 def test_enable_beyond_the_plain_plugin_name_is_a_change(tmp_path: Path, command: str) -> None:
     # ``--all`` is also an abbreviation of ``--allow-tool-override``.
     assert _hit(tmp_path, "terminal", {"command": command}) is not None, command
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "sudo hermes plugins enable petasos",
+        "timeout 5 hermes plugins enable petasos",
+        "env hermes plugins enable petasos",
+        "nice hermes plugins enable petasos",
+        "PIP_INDEX_URL=https://example.test/simple hermes plugins enable petasos",
+        "HERMES plugins enable petasos",
+        "Hermes plugins enable petasos",
+        "hermes plugins enable petasos ''",
+        "hermes plugins enable git+https://example.test/org/petasos@feature/x",
+    ],
+)
+def test_enable_counts_as_plain_only_when_written_plainly(tmp_path: Path, command: str) -> None:
+    assert _hit(tmp_path, "terminal", {"command": command}) is not None, command
+
+
+@pytest.mark.parametrize(
+    "command",
+    ["hermes.exe plugins enable petasos", "C:/Hermes/hermes.exe plugins enable petasos"],
+)
+def test_suffixed_enable_is_a_change_where_the_suffix_names_hermes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, command: str
+) -> None:
+    """On Windows ``hermes.exe`` runs Hermes; that spelling is still not the plain one."""
+    monkeypatch.setattr(shell_parse, "os", SimpleNamespace(name="nt", path=os.path))
+    assert shell_parse._program("hermes.exe") == "hermes"
+    assert _hit(tmp_path, "terminal", {"command": command}) is not None, command
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "hermes plugins enable petasos",
+        "/opt/hermes/bin/hermes plugins enable petasos",
+        "  hermes plugins enable petasos  ",
+        "  /opt/hermes/bin/hermes plugins enable petasos\t",
+    ],
+)
+def test_plain_enable_written_directly_is_not_a_change(tmp_path: Path, command: str) -> None:
+    assert _hit(tmp_path, "terminal", {"command": command}) is None, command
 
 
 def test_enable_is_cleared_by_help_unless_it_writes_the_override(tmp_path: Path) -> None:
