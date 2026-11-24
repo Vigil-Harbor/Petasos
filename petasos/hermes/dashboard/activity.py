@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import base64
 import json
+import stat
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -373,11 +374,15 @@ def _window(
     record: a writer may still be appending it.
     """
     try:
-        size = path.stat().st_size
+        status = path.stat()
     except FileNotFoundError:
         return [], True, 0
     except OSError as exc:
         raise ApiError("record_unreadable", "The activity record could not be opened.") from exc
+    # Windows gives a directory a size of 0, which would read as an empty record.
+    if not stat.S_ISREG(status.st_mode):
+        raise ApiError("record_unreadable", "The activity record could not be opened.")
+    size = status.st_size
     stop = size if end is None else min(end, size)
     if stop <= 0 or budget <= 0:
         return [], True, 0
