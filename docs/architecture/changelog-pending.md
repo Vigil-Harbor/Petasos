@@ -92,6 +92,18 @@ deleted.
 
 ## Changed
 
+- The guardrail recogniser flags everything the 0.5.0 guard flags. It reads
+  every command of a tool call rather than the first 64 commands and
+  100,000 characters, and reports a script nested past its depth limit
+  rather than allowing it unread. Hermes's global options before the verb
+  (`-p work`, `--profile=work`, `-c session`, an abbreviated or clustered
+  option) no longer hide `config set|unset` after a program word it cannot
+  resolve (`$HERMES_BIN -p work config unset command_allowlist`). Writes
+  to the top-level `petasos` key are a change. A Hermes configuration
+  write inside quoted text is a change, and so is a text too long for that
+  reading to inspect; this is conservative, so `grep -r 'hermes config set
+  command_allowlist' docs/` now asks.
+
 - The Petasos tab was reworked in a designer and reviewer loop. Overview keeps
   the protection state apart from the job and strictness choices and offers two
   first-run steps on a profile where neither has been chosen. Activity opens its

@@ -300,9 +300,20 @@ it got in.
     `cmd /c "..."`), which is read with that shell's rules: `-EncodedCommand`,
     `-File`, and a path or command built at runtime inside the script. See
     `hermes-host-facts.md`, section 19.
-  - Anything past the first 64 commands or the first 100,000 characters of
-    one tool call. The rest is not read, so padding hides a change. The
-    limits bound the time a check takes, which is mostly resolving paths.
+  - Text nested more than three levels deep: a script handed to a shell,
+    `eval` or Python inside another, or a command started by another
+    (`timeout 5 ...`, `xargs ...`). A script left unread there is reported
+    as a change ("command nested too deeply to inspect"); a started command
+    there is judged without its scripts, and one started past it is not
+    read. Every command of a tool call is read, however long the text is;
+    the cost stays linear in its length.
+  - Quoted text is read again only for commands that write Hermes's
+    configuration, and conservatively: such a command anywhere in a quoted
+    argument is a change (`printf %s 'hermes config set command_allowlist x'`,
+    `grep -r 'hermes config set ...'`), and so is `config set` or
+    `config unset` of a guarded key after any program word there. A text
+    whose quoted-text reading runs out of its word budget is reported as
+    "command too long to inspect", as the 0.5.0 guard did.
   - Package managers other than `pip`, `pipx` and `uv` (`poetry`, `conda`),
     and an install from a requirements file or from the current directory.
   - A Python path built in a variable and used later
