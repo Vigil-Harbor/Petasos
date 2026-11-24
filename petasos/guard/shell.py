@@ -21,8 +21,8 @@ from petasos.guard.program import _code_names_path, _embedded, _strip_python_com
 from petasos.guard.shell_parse import (
     _WRAPPERS,
     _assignment,
-    _parse,
     _program,
+    _readings,
     _Simple,
     _strip_wrappers,
 )
@@ -76,9 +76,10 @@ def _command_change(
     if len(text) > _MAX_CHARS:
         text = text[:_MAX_CHARS]
     rules = library_rules() + surface.commands
-    hit = _each_command(_parse(text), owned, surface, rules, env, cwd, depth=0, plain=plain)
-    if hit is not None:
-        return hit
+    for commands in _readings(text):
+        hit = _each_command(commands, owned, surface, rules, env, cwd, depth=0, plain=plain)
+        if hit is not None:
+            return hit
     return _heredoc_hit(text, owned, surface, env, cwd)
 
 
@@ -136,10 +137,11 @@ def _heredoc_hit(
     """
     for line, body in _heredocs(text):
         programs = set()
-        for command in _parse(line):
-            argv, _assignments = _strip_wrappers(command.argv)
-            if argv:
-                programs.add(_program(argv[0]))
+        for commands in _readings(line):
+            for command in commands:
+                argv, _assignments = _strip_wrappers(command.argv)
+                if argv:
+                    programs.add(_program(argv[0]))
         if "python" in programs:
             hit = _judge_code(body, owned, surface, env, cwd)
         elif programs & _INTERPRETERS:
@@ -384,7 +386,11 @@ def _nested(
     cwd: str,
     depth: int,
 ) -> GuardrailHit | None:
-    return _each_command(_parse(script), owned, surface, rules, env, cwd, depth=depth + 1)
+    for commands in _readings(script):
+        hit = _each_command(commands, owned, surface, rules, env, cwd, depth=depth + 1)
+        if hit is not None:
+            return hit
+    return None
 
 
 def _native(

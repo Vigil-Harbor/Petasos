@@ -105,7 +105,28 @@ def _program(token: str) -> str:
     return base
 
 
-def _parse(text: str) -> list[_Simple]:
+def _readings(text: str) -> tuple[list[_Simple], ...]:
+    """The shell's reading of ``text``, then its Windows-path reading when that differs.
+
+    A shell drops an unquoted backslash, so ``C:\\Tools\\hermes.exe`` names
+    ``C:Toolshermes.exe`` and ``C:/x/conf\\ig.yaml`` names ``C:/x/config.yaml``.
+    The second reading keeps the separators of a drive-letter word, for a
+    pasted Windows path. Callers judge both and keep any match: the second
+    reading may add a match, never remove one.
+    """
+    shell = _parse(text)
+    if "\\" not in text or ":" not in text:
+        return (shell,)
+    windows = _parse(text, drive_paths=True)
+    return (shell,) if windows == shell else (shell, windows)
+
+
+def _parse(text: str, *, drive_paths: bool = False) -> list[_Simple]:
+    """Shell words, redirects and assignments, as a POSIX shell reads them.
+
+    ``drive_paths`` keeps a backslash before a letter or digit in a word that
+    starts with a drive letter. Use it only through ``_readings``.
+    """
     commands: list[_Simple] = []
     words: list[str] = []
     redirects: list[str] = []
@@ -156,9 +177,15 @@ def _parse(text: str) -> list[_Simple]:
             continue
         if char == "\\" and index + 1 < length:
             nxt = text[index + 1]
-            # A pasted Windows drive path is also a possible program word on
-            # other hosts. Keep its separators rather than joining its parts.
-            if len(buf) >= 2 and buf[0].isalpha() and buf[1] == ":" and nxt.isalnum():
+            # The Windows-path reading of a pasted drive path keeps its
+            # separators rather than joining its parts.
+            if (
+                drive_paths
+                and len(buf) >= 2
+                and buf[0].isalpha()
+                and buf[1] == ":"
+                and nxt.isalnum()
+            ):
                 buf.append(char)
                 index += 1
                 continue

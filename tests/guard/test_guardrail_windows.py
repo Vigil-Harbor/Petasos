@@ -13,7 +13,7 @@ import pytest
 
 from petasos.guard.guardrail import recognize
 from petasos.guard.paths import _native_drive
-from petasos.guard.shell_parse import _parse, _program
+from petasos.guard.shell_parse import _parse, _program, _readings
 from petasos.hermes.guardrail import hermes_surface
 
 if TYPE_CHECKING:
@@ -85,6 +85,46 @@ def test_double_quotes_keep_a_backslash_before_an_ordinary_character() -> None:
     assert _parse('echo "' + BACKSLASH + '$HOME"')[0].argv == ("echo", "$HOME")
 
 
+@pytest.mark.parametrize(
+    ("command", "argv", "redirects"),
+    [
+        ("rm C:/x/hermes/conf\\ig.yaml", ("rm", "C:/x/hermes/config.yaml"), ()),
+        ("echo x > C:/x/hermes/conf\\ig.yaml", ("echo", "x"), ("C:/x/hermes/config.yaml",)),
+        ("rm C:/x/herm\\es/config.yaml", ("rm", "C:/x/hermes/config.yaml"), ()),
+        ("rm -r C:/x/hermes/plugins/pet\\asos", ("rm", "-r", "C:/x/hermes/plugins/petasos"), ()),
+        ("C:\\Tools\\hermes.exe x", ("C:Toolshermes.exe", "x"), ()),
+    ],
+)
+def test_a_drive_letter_word_is_read_as_the_shell_reads_it(
+    command: str, argv: tuple[str, ...], redirects: tuple[str, ...]
+) -> None:
+    """The shell drops an unquoted backslash in a drive-letter word too, on every host.
+
+    The Windows-path reading is a second reading that keeps the backslash.
+    It can only add a match, so the shell's reading always comes first.
+    """
+    readings = _readings(command)
+    assert (readings[0][0].argv, readings[0][0].redirects) == (argv, redirects)
+    assert len(readings) == 2
+    kept = (*readings[1][0].argv, *readings[1][0].redirects)
+    assert any(BACKSLASH in word for word in kept)
+
+
+def test_a_command_without_a_drive_letter_word_has_one_reading() -> None:
+    assert len(_readings("rm hermes/conf\\ig.yaml")) == 1
+    assert len(_readings("rm C:/x/hermes/config.yaml")) == 1
+
+
+@pytest.mark.parametrize(
+    "program",
+    ["C:\\Tools\\hermes.exe", "C:/Tools/hermes.exe", "C:\\Tools\\hermes", "C:/Tools/hermes"],
+)
+def test_a_drive_path_program_is_recognised(tmp_path: Path, program: str) -> None:
+    hit = _recognize(tmp_path, "terminal", {"command": f"{program} plugins disable petasos"})
+    assert hit is not None
+    assert hit.kind == "plugin"
+
+
 @windows_only
 @pytest.mark.parametrize("name", ["hermes.exe", "HERMES.EXE", "hermes.cmd", "hermes.bat"])
 def test_an_executable_suffix_is_the_same_program(name: str) -> None:
@@ -127,6 +167,9 @@ def test_a_program_named_with_its_suffix_is_still_recognised(tmp_path: Path, com
         'rm "{native}"',
         "rm '{native}'",
         "rm {escaped}",
+        # Git Bash drops these backslashes, so the file is not removed. The
+        # Windows-path reading still names the config, and that only adds an ask.
+        "rm {native}",
         "echo x > {bash}",
         "sed -i s/a/b/ {bash}",
         "cat > {bash} <<EOF\nx\nEOF",
@@ -156,10 +199,32 @@ def test_a_git_bash_command_names_the_config(tmp_path: Path, template: str) -> N
 
 @windows_only
 @pytest.mark.parametrize(
+    ("command", "kind"),
+    [
+        ("rm {home}/conf\\ig.yaml", "settings"),
+        ("echo x > {home}/conf\\ig.yaml", "settings"),
+        ("rm {root}/herm\\es/config.yaml", "settings"),
+        ("rm -r {home}/plugins/pet\\asos", None),
+    ],
+)
+def test_a_backslash_inside_a_drive_path_still_names_the_file(
+    tmp_path: Path, command: str, kind: str | None
+) -> None:
+    """Git Bash drops the backslash, so each of these reaches the real file."""
+    text = command.format(
+        home=(tmp_path / "hermes").as_posix(),
+        root=tmp_path.as_posix(),
+    )
+    hit = _recognize(tmp_path, "terminal", {"command": text})
+    assert hit is not None, text
+    if kind is not None:
+        assert hit.kind == kind
+
+
+@windows_only
+@pytest.mark.parametrize(
     "template",
     [
-        # The shell removes an unquoted backslash, so this names no real file.
-        "rm {native}",
         "rm /c/Windows/Temp/petasos-not-here.txt",
         "rm /home/x/config.yaml",
         "cat {bash}",
