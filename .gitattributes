@@ -1,3 +1,5 @@
 # Packaged rule digests are byte-exact across native checkouts and wheels.
 petasos/scanners/semgrep/rules/*.json text eol=lf
 scripts/semgrep_workloads_v3.json text eol=lf
+# Gate evidence is kept as the gate wrote it, so its recorded SHA-256 verifies.
+docs/acceptance/composition/*.json -text

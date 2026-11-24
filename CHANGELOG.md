@@ -4,6 +4,25 @@ All notable changes to Petasos are documented here. Format follows [Keep a Chang
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-23
+
+Headline release since 0.4.0: the scanner backend migration begins. Meta's
+PromptGuard 2 now runs as a direct `prompt_guard` backend on torch and
+transformers, proven on native Windows with Python 3.14, and `petasos[all]` is
+now Presidio, PromptGuard and the console. LLM Guard and LlamaFirewall are
+deprecated: they still work, each constructor warns, and removal comes no
+earlier than the release after this one. Read the upgrade note first, because a
+registered backend that is not installed blocks all content under the default
+fail mode. The reference plugin gains a dependency manifest for Hermes
+generations, Hermes's context-local home override now leads config resolution,
+the console reports which served profiles can actually load a hook and works on
+Hermes's default profile, approval decisions are recorded on the enforcement
+spool, and a degraded approve re-arms until a session or always answer. An
+opt-in Semgrep scanner for unsafe code arrives, and the console shows a scanner
+the startup build refused. This release also carries a security fix for the
+Hermes plugin: Hermes configuration changes that touch Petasos's guardrails are
+now stopped, not only recorded. See Security below and upgrade from 0.4.0.
+
 ### Upgrade note: PET-242 can block all content until you act
 
 The new `prompt_guard` backend registers even when its packages or model are
@@ -26,6 +45,15 @@ silently drop a scanner. Going back to an older Petasos with `prompt_guard` list
 fails config validation, because an older release rejects the unknown id.
 
 ### Added
+
+- **Console health shows a scanner the startup build refused (PET-264).**
+  `GET /api/health` and the embedded plugin health route gain `scanner_build`,
+  the full startup build record. `scanners` and `scanner_count` stay the
+  registered scanners. The scanner list adds a row for each backend the build
+  was asked for that is not registered, with a plain-language explanation and
+  the reason token, and it says those outcomes are from the startup build. A
+  host that hands the console a ready pipeline and no build record keeps
+  working, and the response says no record is available.
 
 - **Opt-in isolated Semgrep library scanner (PET-254, package S).** Adds explicit
   `SemgrepLifecycleOwner`, bounded shared engine ownership, original-coordinate
@@ -65,7 +93,9 @@ fails config validation, because an older release rejects the unknown id.
 - **Reference plugin dependency manifest (PET-242).**
   `docs/deployment/reference_plugin/pyproject.toml` declares `petasos[presidio,prompt-guard]>=0.5.0`
   and the spaCy model, for Hermes generations, which have no pip. It assumes
-  0.5.0 is the next release number.
+  0.5.0 is the next release number. The requirement excludes Android, where torch
+  has no wheel: Hermes locks every platform at once, and an unmarked requirement
+  failed that lock and left the plugin disabled on every platform (PET-263).
 
 - **Hermes approval decisions observed as enforcement events (PET-222).**
   The reference plugin records every `pre_approval_request` and
@@ -184,6 +214,23 @@ fails config validation, because an older release rejects the unknown id.
   confirmed `session` or `always` response, and re-arms the prompt on deny or
   timeout. The record is in-memory state beside the existing approval row. No
   new event type is added.
+
+### Security
+
+- **Hermes configuration changes that touch Petasos's guardrails are stopped,
+  not only recorded ([GHSA-cvmp-gx23-mv83](https://github.com/Vigil-Harbor/Petasos/security/advisories/GHSA-cvmp-gx23-mv83)).** In 0.4.0 an agent could add a Petasos
+  rule to Hermes's permanent approval list by running the Hermes command line
+  from its terminal tool, after which commands matching that rule were allowed.
+  Petasos now treats Hermes commands that change that list, Hermes's approval
+  settings, Petasos's own settings or whether the plugin is loaded as changes
+  to its own guardrails. The reference plugin blocks them, or holds them for a
+  person under the approve posture, and an "always" approval never covers
+  them. A direct write to the Hermes configuration file is handled the same
+  way; 0.4.0 recorded it without stopping it. A tool call that only mentions
+  the configuration path stays record-only. Recognition reads the command
+  text, so a command assembled at run time is not recognised. If you ran
+  0.4.0, check `command_allowlist` in each profile's `config.yaml` for
+  `plugin_rule:` entries you did not add yourself.
 
 ## [0.4.0] - 2026-10-12
 
@@ -966,7 +1013,8 @@ First public release. Every feature ships free and keyless: no license key, no t
 - **Tool-name canonicalization parity**: enforcement and classification share one canonical primitive, closing case / homoglyph / namespace / CamelCase / `_tool`-suffix variant-named egress bypasses
 - **PII-egress hardening**: egress-scoped guard blocking, corrected ordinal severity ranking (a lone CRITICAL now blocks), and a parse-time PII-entity vocabulary guard
 
-[Unreleased]: https://github.com/Vigil-Harbor/Petasos/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/Vigil-Harbor/Petasos/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/Vigil-Harbor/Petasos/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/Vigil-Harbor/Petasos/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/Vigil-Harbor/Petasos/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/Vigil-Harbor/Petasos/compare/v0.1.2...v0.2.0
