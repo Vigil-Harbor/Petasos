@@ -125,10 +125,14 @@ deleted.
   be read past the depth limit is reported as too deep to inspect. A
   Hermes alias or module form (`ai.hermes.exe`, `ai.hermes`, `hermes.exe`
   off Windows, `python -m hermes_cli`) keeps the operand check of the word
-  as written, so `ai.hermes.exe --version config.yaml` asks again. Long
-  PowerShell pipelines, many protected paths in program text, long
-  environment-variable path joins, and long `cd` chains no longer cost
-  quadratic time.
+  as written, so `ai.hermes.exe --version config.yaml` asks again. A
+  `~name` path whose account the system cannot look up (a NUL or an
+  unencodable character in the name) is reported as "path cannot be
+  inspected" instead of raising. Long PowerShell pipelines, many protected
+  paths in program text, long environment-variable path joins, and long
+  `cd` chains no longer cost quadratic time, and an `os.system` string or
+  `subprocess` argument list with no closing quote or bracket no longer
+  costs exponential time.
 
 - The Petasos tab was reworked in a designer and reviewer loop. Overview keeps
   the protection state apart from the job and strictness choices and offers two
