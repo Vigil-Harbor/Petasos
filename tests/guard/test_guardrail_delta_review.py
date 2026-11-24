@@ -175,7 +175,13 @@ def test_a_hermes_alias_keeps_the_operand_check_of_the_word_as_written(
 ) -> None:
     """Reading the alias as ``hermes`` only adds a reading; ``name`` is still a file."""
     hit = _recognize(tmp_path, f"{program} {option} {_NAME}")
-    assert hit is not None and hit.target == str(tmp_path.resolve() / _NAME)
+    if program == "hermes.exe" and os.name == "nt":
+        # On Windows ``hermes.exe`` is the program ``hermes`` as written, not
+        # an alias, so only Hermes's own reading applies and its help flags
+        # leave the bare name alone.
+        assert hit is None
+    else:
+        assert hit is not None and hit.target == str(tmp_path.resolve() / _NAME)
     # Hermes's own verbs stay verbs.
     assert _recognize(tmp_path, f"{program} plugins list") is None
 
