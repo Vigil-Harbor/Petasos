@@ -230,6 +230,7 @@ _VARIANT_COMMANDS = [
     # Other spellings of the program.
     "ai.hermes config set command_allowlist '[]'",
     "/Applications/Hermes.app/Contents/MacOS/ai.hermes config unset command_allowlist",
+    "ai.hermes.exe config set command_allowlist '[]'",
     "hermes.exe config set command_allowlist '[]'",
     "HERMES config set command_allowlist '[]'",
     "python -m hermes_cli.main config set command_allowlist '[]'",
@@ -246,6 +247,12 @@ _VARIANT_COMMANDS = [
     "hermes config unset petasos",
     "hermes config set plugins.enabled '[]'",
     "hermes config set plugins.disabled '[petasos]'",
+    # The whole ``plugins`` mapping: replacing it, or a key in it, can
+    # replace the entries that load Petasos.
+    "hermes config set plugins.review_note demo",
+    "hermes config unset plugins",
+    "hermes config set plugins.entries '{}'",
+    "h config set plugins '{}'",
     "hermes plugins disable petasos",
     "hermes -p work plugins uninstall petasos",
     "hermes plugins remove --yes petasos",
@@ -280,6 +287,7 @@ _INVOCATION_FORMS = [
     "hermes.exe",
     r"C:\Tools\hermes.exe",
     "ai.hermes",
+    "ai.hermes.exe",
     "python -m hermes_cli.main",
     "python3.11 -m hermes_cli",
     "python -u -m hermes_cli.main",

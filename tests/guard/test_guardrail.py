@@ -926,6 +926,10 @@ def test_an_unknown_program_option_value_is_not_its_verb(tmp_path: Path, option:
         "plugins.disabled",
         "plugins.hook_callback_timeout",
         "plugins.auto_apply",
+        "plugins",
+        "plugins.entries",
+        "plugins.review_note",
+        "plugins.entries.petasos_other",
     ],
 )
 @pytest.mark.parametrize("verb", ["set", "unset"])
@@ -955,7 +959,7 @@ def test_unknown_program_only_guards_listed_config_keys(
         "h config edit",
         "h config set model x",
         "h config set command_allowlist_backup x",
-        "h config set plugins.entries.petasos_other x",
+        "h config set plugins_backup x",
         "h config set approvals_backup x",
         "h config get command_allowlist",
     ],
@@ -1385,9 +1389,8 @@ def test_command_rule_fields_keep_their_positions() -> None:
     [
         "hermes config set approvals_backup example",
         "hermes config set command_allowlist_backup x",
-        "hermes config unset plugins.enabled_extra",
-        r"hermes config set 'plugins.entries.petasos\.x' y",
-        r"h config set 'plugins.entries.petasos\.x' y",
+        "hermes config unset plugins_extra",
+        "h config set pluginsx.enabled y",
     ],
 )
 def test_a_config_key_matches_only_at_a_segment_boundary(tmp_path: Path, command: str) -> None:

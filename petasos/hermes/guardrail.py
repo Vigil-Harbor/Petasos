@@ -20,6 +20,13 @@ _PLUGIN_TAILS = (
     "plugins.hook_callback_timeout",
     "plugins.auto_apply",
 )
+# Hermes reads which plugins it loads, and with what settings, from the
+# ``plugins`` mapping. Setting or removing ``plugins`` or any key inside it
+# can replace the entries above, so the whole mapping is guarded, after the
+# entries above so a match keeps their labels. As in the 0.5.0 guard, a
+# program word that cannot be resolved is read the same way: such a word may
+# be Hermes, and ``$H config set plugins '{}'`` would replace every entry.
+_PLUGINS_KEY = "plugins"
 # ``approvals`` holds Hermes's approval settings (mode, timeout, deny list).
 # ``petasos`` is the plugin's own top-level section. Petasos reads its
 # settings elsewhere, but a write there is still treated as a change.
@@ -296,6 +303,16 @@ def hermes_surface(paths: Iterable[str], roots: Iterable[str] = ()) -> Guardrail
                     help_clears=False,
                 )
             )
+        commands.append(
+            CommandRule(
+                "plugin",
+                ("hermes", "config", verb),
+                f"hermes config {verb} {_PLUGINS_KEY}",
+                tail=_PLUGINS_KEY,
+                unknown_program=True,
+                help_clears=False,
+            )
+        )
     return GuardrailSurface(
         paths={kind: frozenset(values) for kind, values in labelled.items()},
         roots=frozenset(str(root) for root in roots),
@@ -303,7 +320,7 @@ def hermes_surface(paths: Iterable[str], roots: Iterable[str] = ()) -> Guardrail
         programs=(
             CommandProgram(
                 "hermes",
-                aliases=("ai.hermes", "hermes.exe"),
+                aliases=("ai.hermes", "hermes.exe", "ai.hermes.exe"),
                 modules=("hermes_cli", "hermes_cli.main"),
                 value_options=_GLOBAL_VALUES,
                 optional_value_options=_GLOBAL_OPTIONAL_VALUES,

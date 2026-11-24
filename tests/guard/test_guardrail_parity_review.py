@@ -45,3 +45,18 @@ def test_python_on_the_opening_line_keeps_the_other_interpreter_check(tmp_path: 
     command = "true; " * 63 + "python --version; ruby <<'EOF'\n" + body + "\nEOF"
     hit = _hit(tmp_path, command)
     assert hit is not None and hit.target == _config(tmp_path)
+
+
+def test_any_key_in_the_plugins_mapping_is_a_change(tmp_path: Path) -> None:
+    """0.5.0 guards the whole ``plugins`` mapping, in the command and in quoted text."""
+    for command in (
+        "hermes config set plugins.review_note demo",
+        "echo 'hermes config set plugins.review_note demo'",
+    ):
+        hit = _hit(tmp_path, command)
+        assert hit is not None and hit.target == "hermes config set plugins", command
+
+
+def test_ai_hermes_exe_is_hermes(tmp_path: Path) -> None:
+    hit = _hit(tmp_path, "ai.hermes.exe config edit")
+    assert hit is not None and hit.target == "hermes config edit"
