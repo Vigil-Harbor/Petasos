@@ -11,11 +11,13 @@ from pathlib import Path
 
 import pytest
 
+import petasos
 from petasos.hermes.dashboard.scope import load_home
 from petasos.hermes.dashboard.status import status
 from petasos.hermes.doctor import examine
 from petasos.hermes.environment import Probe, file_url_path
 from petasos.hermes.install import render_project
+from petasos.hermes.wheel import wheel_filename
 from tests.hermes.conftest import healthy_home
 
 _NOT_INSTALLED = '{"ok": false, "error": "No module named petasos"}'
@@ -144,7 +146,7 @@ def test_doctor_compares_the_committed_build_to_the_plugin_source(
 ) -> None:
     home = healthy_home(tmp_path, monkeypatch)
     target = home / "plugins" / "petasos"
-    source = target / "wheels" / "new" / "petasos-0.4.0-py3-none-any.whl"
+    source = target / "wheels" / "new" / wheel_filename()
     source.parent.mkdir(parents=True)
     source.write_bytes(b"new")
     (target / "pyproject.toml").write_text(
@@ -161,7 +163,7 @@ def test_doctor_compares_the_committed_build_to_the_plugin_source(
                 "hashes": {"sha256": hashlib.sha256(b"old" if stale else b"new").hexdigest()}
             },
         }
-    payload = {"ok": True, "version": "0.4.0", "direct_url": json.dumps(direct)}
+    payload = {"ok": True, "version": petasos.__version__, "direct_url": json.dumps(direct)}
     _facts(home, json.dumps(payload))
     report = examine(home, home_reason="test")
     check = next(item for item in report.checks if item.id == "hermes_environment")

@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
+import petasos
 from petasos.cli import main
 from petasos.config.layers import LEVELS, ROLES
 from petasos.enforce.types import ApprovalGrant
@@ -38,7 +39,7 @@ def test_healthy_install_is_protected(
 
     assert code == 0
     assert "Protected. Petasos is checking tool calls for this agent." in out
-    assert "Petasos 0.4.0" in out
+    assert f"Petasos {petasos.__version__}" in out
     assert "Python" in out
     assert "Hermes 0.23.1 is new enough" in out
     assert "plugin files are in place" in out

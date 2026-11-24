@@ -1,5 +1,5 @@
 name: petasos
-version: "0.4.0"
+version: "0.5.0"
 description: "Content security for Hermes agent tool calls and tool results."
 requires_hermes: ">=0.23.1"
 provides_hooks:

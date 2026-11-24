@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 from petasos.cli import main
 from petasos.hermes import semgrep_host
+from petasos.hermes.wheel import wheel_filename
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -152,6 +153,6 @@ def test_install_output_names_the_development_route(
     code, out = _run(["hermes", "install", "--home", str(tmp_path), "--dry-run"], capsys)
     assert code == 0
     assert "development install" in out
-    assert "petasos-0.4.0-py3-none-any.whl" in out
+    assert wheel_filename() in out
     assert "released" in out
     assert "Dry run" in out

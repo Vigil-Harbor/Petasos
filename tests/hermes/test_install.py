@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+import petasos
 from petasos.cli import main
 from petasos.hermes import install
 from petasos.hermes import wheel as wheel_module
@@ -307,7 +308,9 @@ def _install(home: Path) -> install.InstallResult:
 
 
 def _probe(source: Path) -> Probe:
-    return Probe(ok=True, version="0.4.0", direct_url=json.dumps({"url": source.as_uri()}))
+    return Probe(
+        ok=True, version=petasos.__version__, direct_url=json.dumps({"url": source.as_uri()})
+    )
 
 
 def test_reinstall_keeps_added_scanners_and_removal_still_works(

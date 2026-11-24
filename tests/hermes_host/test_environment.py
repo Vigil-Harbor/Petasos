@@ -16,6 +16,7 @@ from typing import Any
 
 import pytest
 
+import petasos
 from tests.hermes_host.client import fresh_home, sandbox_env
 from tests.hermes_host.marks import requires_hermes_sandbox
 
@@ -146,7 +147,7 @@ def test_development_install_enforces_in_a_new_process(
     assert "development install" in installed.stdout
     state = _enforcing(petasos_wheel, home)
     assert state["error"] is None
-    assert state["version"] == "0.4.0"
+    assert state["version"] == petasos.__version__
     assert "site-packages" in state["file"]
     assert isinstance(state["block"], str) and state["block"].strip()
     assert state["clean"] is None

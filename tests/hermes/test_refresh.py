@@ -13,7 +13,7 @@ from petasos.cli import main
 from petasos.hermes import host, install
 from petasos.hermes.commands import install_registered_cli, run_registered
 from petasos.hermes.environment import Probe, Runtime
-from petasos.hermes.wheel import wheel_source
+from petasos.hermes.wheel import wheel_filename, wheel_source
 from tests.hermes.conftest import enabled_config, healthy_home
 from tests.hermes.test_install import _install, _probe
 
@@ -31,7 +31,7 @@ def _hint(home: Path, command: str) -> str:
 def _saved(home: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     healthy_home(home, monkeypatch)
     target = home / "plugins" / "petasos"
-    wheel = target / "wheels" / "new" / "petasos-0.4.0-py3-none-any.whl"
+    wheel = target / "wheels" / "new" / wheel_filename()
     wheel.parent.mkdir(parents=True)
     wheel.write_bytes(b"new")
     (target / "pyproject.toml").write_text(install.render_project(f"new/{wheel.name}"))

@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any
 from petasos.hermes.doctor import Check, HermesView
 from petasos.hermes.install import dashboard_texts, render_project
 from petasos.hermes.manifest import render_manifest
+from petasos.hermes.wheel import wheel_filename
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -26,9 +27,7 @@ def write_plugin(home: Path) -> Path:
         "from petasos.hermes.plugin import register\n",
         encoding="utf-8",
     )
-    (target / "pyproject.toml").write_text(
-        render_project("petasos-0.4.0-py3-none-any.whl"), encoding="utf-8"
-    )
+    (target / "pyproject.toml").write_text(render_project(wheel_filename()), encoding="utf-8")
     dashboard = target / "dashboard"
     dashboard.mkdir(parents=True, exist_ok=True)
     for name, text in dashboard_texts().items():

@@ -12,6 +12,7 @@ import textwrap
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import petasos
 from tests.hermes_host.client import fresh_home, sandbox_env
 from tests.hermes_host.marks import requires_hermes_sandbox
 
@@ -99,7 +100,7 @@ def test_a_new_process_imports_the_wheel_under_the_homes_installs(
     installs = home.resolve() / "installs"
     sandbox_venv = petasos_wheel.resolve() / "venv"
     assert state["error"] is None
-    assert state["version"] == "0.4.0"
+    assert state["version"] == petasos.__version__
     assert installed_file.is_relative_to(installs)
     assert hermes_pkg.is_relative_to(installs)
     assert not installed_file.is_relative_to(sandbox_venv)
