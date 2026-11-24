@@ -28,6 +28,9 @@ _SEEN_LIMIT = 1_000_000
 
 _TOO_DEEP = "command nested too deeply to inspect"
 _TOO_LONG = "command too long to inspect"
+# A word whose path the system refused to work out, such as ``~name`` with
+# a NUL in the account name. It is reported as a change, not allowed unread.
+_UNREADABLE = "path cannot be inspected"
 
 
 @dataclass(slots=True)

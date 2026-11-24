@@ -6,7 +6,13 @@ import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from petasos.guard.bounds import _MAX_DEPTH, _MAX_QUOTE_DEPTH, _TOO_DEEP, _TOO_LONG
+from petasos.guard.bounds import (
+    _MAX_DEPTH,
+    _MAX_QUOTE_DEPTH,
+    _TOO_DEEP,
+    _TOO_LONG,
+    _UNREADABLE,
+)
 from petasos.guard.mutations import (
     _COPIES,
     _INTERPRETERS,
@@ -23,7 +29,7 @@ from petasos.guard.native_shell import (
     _passive_after,
 )
 from petasos.guard.options import _readings
-from petasos.guard.paths import _expand_path, _Owned
+from petasos.guard.paths import _expand_path, _Owned, _Unreadable
 from petasos.guard.program import _code_names_path, _embedded, _strip_python_comments
 from petasos.guard.rule_match import _rule_matches
 from petasos.guard.shell_parse import (
@@ -298,7 +304,10 @@ def _each_command(
             )
         if hit is not None:
             return hit
-        cwd = _after_cd(command, owned, env, cwd)
+        moved = _after_cd(command, owned, env, cwd)
+        if moved is None:
+            return GuardrailHit("settings", _UNREADABLE)
+        cwd = moved
         if owned.work.spent:
             return GuardrailHit("settings", _TOO_LONG)
     return None
@@ -306,13 +315,14 @@ def _each_command(
 
 def _after_cd(
     command: _Simple, owned: _Owned, env: Mapping[str, str], cwd: str, *, native: bool = False
-) -> str:
+) -> str | None:
     """The working directory after ``command``, when it is a ``cd``.
 
     On Windows a relative directory has two readings. Git Bash's own ``cd``
     takes the shell's, and ``cd`` inside a PowerShell or cmd script
     (``native``) takes the system's. Working out the directory spends the
-    recognition's path budget; the caller reports a spent budget.
+    recognition's path budget; the caller reports a spent budget. ``None``
+    means the system could not work the directory out (see ``_Unreadable``).
     """
     argv, _assignments = _strip_wrappers(command.argv)
     if not argv or _program(argv[0]) not in {"cd", "pushd"}:
@@ -324,7 +334,10 @@ def _after_cd(
         return cwd
     if not owned.work.spend_path(len(targets[0]) + len(cwd)):
         return cwd
-    readings = _expand_path(targets[0], env, cwd, hedge=False)
+    try:
+        readings = _expand_path(targets[0], env, cwd, hedge=False)
+    except _Unreadable:
+        return None
     return readings[0] if native else readings[-1]
 
 
@@ -684,7 +697,10 @@ def _native(
                 hit = _native(rest, shell, owned, surface, rules, env, cwd, depth + 1)
             if hit is not None:
                 return hit
-            cwd = _after_cd(command, owned, env, cwd, native=True)
+            moved = _after_cd(command, owned, env, cwd, native=True)
+            if moved is None:
+                return GuardrailHit("settings", _UNREADABLE)
+            cwd = moved
             if owned.work.spent:
                 return GuardrailHit("settings", _TOO_LONG)
     return None

@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from petasos.guard.bounds import _SEEN_LIMIT, _TOO_LONG, _Work
+from petasos.guard.bounds import _SEEN_LIMIT, _TOO_LONG, _UNREADABLE, _Work
 from petasos.guard.surface import _KINDS, GuardrailHit, GuardrailSurface
 
 if TYPE_CHECKING:
@@ -184,7 +184,10 @@ def _match_path(
     # budget out instead of costing quadratic time.
     if not owned.work.spend_path(len(raw) + len(cwd) + 16):
         return GuardrailHit("settings", _TOO_LONG)
-    found = _find_path(raw, owned, env, cwd, above=above, hedge=hedge)
+    try:
+        found: GuardrailHit | None = _find_path(raw, owned, env, cwd, above=above, hedge=hedge)
+    except _Unreadable:
+        found = GuardrailHit("settings", _UNREADABLE)
     # What the key keeps, with a little for the entry itself.
     size = sum(len(part) for part in (raw, cwd, key[3], key[4]))
     size += sum(len(name) + len(value or "") for name, value in key[1]) + 64
@@ -303,6 +306,7 @@ def _expand_path(raw: str, env: Mapping[str, str], cwd: str, *, hedge: bool = Tr
     against ``HERMES_HOME`` and ``HOME`` as well. On Windows each of those has
     two readings, the native one and Git Bash's, so the working directory
     alone can give two paths. The last of them is the shell's own reading.
+    Raises ``_Unreadable`` when the system cannot look up a ``~name`` account.
     """
     text = raw.strip()
     if len(text) >= 2 and text[0] == text[-1] and text[0] in {"'", '"'}:
@@ -315,7 +319,7 @@ def _expand_path(raw: str, env: Mapping[str, str], cwd: str, *, hedge: bool = Tr
         else:
             text = os.path.expanduser(text)
     elif text.startswith("~"):
-        text = os.path.expanduser(text)
+        text = _expand_account(text)
     if os.name == "nt":
         # Before the absolute test: Windows reads "/c/x" as a path on the current drive.
         text = text.replace("\\", "/")
@@ -335,6 +339,23 @@ def _expand_path(raw: str, env: Mapping[str, str], cwd: str, *, hedge: bool = Tr
             # readings are candidates.
             bases.extend(_bash_join(root, text) for root in roots)
     return [normalize_path_text(item) for item in bases]
+
+
+class _Unreadable(Exception):
+    """The system refused to work out the path a word names."""
+
+
+def _expand_account(text: str) -> str:
+    """``~name/x`` under that account's home; an unknown account leaves it as written.
+
+    The account lookup itself fails on a name with a NUL or a character the
+    file system encoding cannot hold. That raises ``_Unreadable``, so the
+    caller reports the word rather than reading it as some other path.
+    """
+    try:
+        return os.path.expanduser(text)
+    except (ValueError, OSError) as error:  # UnicodeEncodeError is a ValueError.
+        raise _Unreadable(text) from error
 
 
 def _bash_join(root: str, text: str) -> str:

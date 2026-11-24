@@ -7,6 +7,7 @@ created, read or run. Every command is a guard input only.
 
 from __future__ import annotations
 
+import os
 import shlex
 import time
 from typing import TYPE_CHECKING
@@ -177,3 +178,24 @@ def test_a_hermes_alias_keeps_the_operand_check_of_the_word_as_written(
     assert hit is not None and hit.target == str(tmp_path.resolve() / _NAME)
     # Hermes's own verbs stay verbs.
     assert _recognize(tmp_path, f"{program} plugins list") is None
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Windows reads ~name with no account lookup")
+@pytest.mark.parametrize(
+    "command",
+    [
+        "python -m hermes_cli --help ~na\0me",
+        "ai.hermes.exe --version ~\ud800",
+        "rm ~na\0me",
+        "cd ~na\0me; true",
+        'powershell -Command "cd ~na\0me; Get-Item a"',
+    ],
+)
+def test_an_account_name_the_system_cannot_look_up_is_reported(
+    tmp_path: Path, command: str
+) -> None:
+    """A NUL or an unencodable character in ``~name`` fails the lookup; it never raises."""
+    hit = _recognize(tmp_path, command)
+    assert hit is not None and hit.target == bounds._UNREADABLE
+    # An account that does not exist is a name as written, as a shell reads it.
+    assert _recognize(tmp_path, "rm ~pet-no-such-account") is None
