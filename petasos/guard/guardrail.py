@@ -33,7 +33,7 @@ import threading
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from petasos.guard.bounds import _TOO_LONG
+from petasos.guard.bounds import _TOO_LONG, _UNREADABLE
 from petasos.guard.paths import _match_path, _Owned, _owned
 from petasos.guard.program import _is_code_tool
 from petasos.guard.shell import _command_change, _judge_code
@@ -150,8 +150,9 @@ def recognize(
     ``protected`` is the host's path set, used when ``surface`` does not label
     a path. A labelled path keeps its label. ``package`` defaults to the
     installed package directory. A call that finds no change but ran out of
-    its work budget on the way is reported as too long to inspect, whatever
-    the tool.
+    its work budget on the way is reported as too long to inspect, and one
+    that met a path the system could not work out is reported as such,
+    whatever the tool.
     """
     if _program(tool) in _READ_TOOLS or tool in _READ_TOOLS:
         return None
@@ -163,6 +164,10 @@ def recognize(
     if hit is None and owned.work.spent:
         # Whatever ran out of budget left text unread; that is never an allow.
         return GuardrailHit("settings", _TOO_LONG)
+    if hit is None and owned.work.unreadable:
+        # A path the system could not work out may be protected; whatever
+        # reading set it aside, that is never an allow.
+        return GuardrailHit("settings", _UNREADABLE)
     return hit
 
 

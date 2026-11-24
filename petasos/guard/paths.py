@@ -187,6 +187,7 @@ def _match_path(
     try:
         found: GuardrailHit | None = _find_path(raw, owned, env, cwd, above=above, hedge=hedge)
     except _Unreadable:
+        owned.work.unreadable = True
         found = GuardrailHit("settings", _UNREADABLE)
     # What the key keeps, with a little for the entry itself.
     size = sum(len(part) for part in (raw, cwd, key[3], key[4]))

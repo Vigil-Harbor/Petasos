@@ -280,3 +280,33 @@ def test_an_entry_larger_than_the_cache_still_empties_it() -> None:
     # Larger than the cache with its key, within the path budget.
     assert paths._match_path("b" * (bounds._SEEN_LIMIT - 60), owned, {}, "/w") is None
     assert owned.seen == {} and owned.work.retained == 0
+
+
+@pytest.mark.parametrize(
+    "code",
+    [
+        'open("~reviewaccount/notes.txt").read()',
+        'open(os.path.expanduser("~reviewaccount/notes.txt")).read()',
+        'open(os.environ["R"] + "/notes.txt").read()',
+    ],
+    ids=["plain-read", "inside-expanduser", "env-join"],
+)
+def test_a_path_the_system_cannot_work_out_is_never_a_plain_read(
+    monkeypatch: pytest.MonkeyPatch, code: str
+) -> None:
+    """The read filter, the nested-use filter and a join keep it, as they keep too long."""
+    expanduser = os.path.expanduser
+
+    def failing(text: str) -> str:
+        if text.startswith("~reviewaccount"):
+            raise OSError("account lookup failed")
+        return expanduser(text)
+
+    monkeypatch.setattr(os.path, "expanduser", failing)
+    env = {"R": "~reviewaccount"}
+    owned = paths._Owned({}, ())
+    found = _code_names_path(code, owned, env, "/w")
+    assert found is not None and found.target == bounds._UNREADABLE
+    for text in (code, 'print("~reviewaccount/notes.txt")'):
+        result = recognize("execute_code", {"code": text}, protected=(), environ=env, cwd="/w")
+        assert result is not None and result.target == bounds._UNREADABLE

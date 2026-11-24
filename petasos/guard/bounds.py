@@ -8,7 +8,7 @@ allowed: it is reported as a change.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 # Text inside text is followed this many levels deep. One count runs through
 # every step into nested text: a script handed to a shell, ``eval``, Python,
@@ -31,6 +31,9 @@ _TOO_LONG = "command too long to inspect"
 # A word whose path the system refused to work out, such as ``~name`` with
 # a NUL in the account name. It is reported as a change, not allowed unread.
 _UNREADABLE = "path cannot be inspected"
+# Answers about a path that was not worked out. A reading that filters or
+# replaces the uses it found keeps these, wherever they stand.
+_UNWORKED = frozenset({_TOO_LONG, _UNREADABLE})
 
 
 @dataclass(slots=True)
@@ -45,6 +48,9 @@ class _Work:
     path_chars: int = _PATH_BUDGET
     # Characters held by the cache of worked-out paths.
     retained: int = 0
+    # Set once a path could not be worked out (``_UNREADABLE``). Like a spent
+    # budget, it turns a recognition that found nothing into a report.
+    unreadable: bool = field(default=False, init=False)
 
     def spend_words(self, count: int) -> bool:
         """Spend ``count`` words. False once the budget is gone."""

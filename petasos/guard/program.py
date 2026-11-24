@@ -7,7 +7,7 @@ import re
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from petasos.guard.bounds import _TOO_LONG
+from petasos.guard.bounds import _TOO_LONG, _UNREADABLE, _UNWORKED
 from petasos.guard.paths import _match_path, _Owned
 from petasos.guard.shell_parse import _program
 from petasos.guard.surface import GuardrailHit
@@ -135,7 +135,7 @@ def _code_names_path(
         # A use whose path was not worked out may be anything; it is never a read.
         return GuardrailHit("settings", _TOO_LONG)
     for start, end, hit in occurrences:
-        if hit.target == _TOO_LONG or not _is_plain_code_read(code, start, end):
+        if hit.target in _UNWORKED or not _is_plain_code_read(code, start, end):
             return hit
     return None
 
@@ -179,10 +179,10 @@ def _protected_uses(
 ) -> list[tuple[int, int, GuardrailHit]]:
     """Each protected path use as ``(start, end, hit)``, in source order.
 
-    A use inside another is dropped, but never a text too long to inspect,
-    whose path was not worked out. Quoted strings are found in order and do
-    not overlap, so whether a bare path sits inside one is decided by walking
-    both in step.
+    A use inside another is dropped, but never one whose path was not worked
+    out (too long to inspect, or a path the system could not read). Quoted
+    strings are found in order and do not overlap, so whether a bare path
+    sits inside one is decided by walking both in step.
     """
     found: list[tuple[int, int, GuardrailHit]] = []
     quoted: list[tuple[int, int]] = []
@@ -255,7 +255,11 @@ def _expression_uses(
             if hit is not None and hit.target == _TOO_LONG:
                 found.append((match.start(), cursor, hit))
                 return found
-            if hit is not None:
+            if hit is not None and hit.target == _UNREADABLE:
+                # Kept as it is, never replaced by a longer prefix. The budget
+                # is not spent, so the reading goes on.
+                found.append((match.start(), cursor, hit))
+            elif hit is not None:
                 last = (cursor, hit)
         if last is not None:
             found.append((match.start(), last[0], last[1]))
@@ -289,7 +293,7 @@ def _outer_uses(
     together, and then read once. A use is inside another when one that
     started earlier reaches at least as far, or one that starts with it
     reaches further. Equal spans are all kept, and so is every use whose
-    path was not worked out, wherever it stands.
+    path was not worked out (``_UNWORKED``), wherever it stands.
     """
     ordered = sorted(found, key=lambda use: (use[0], -use[1]))
     kept: list[tuple[int, int, GuardrailHit]] = []
@@ -301,7 +305,7 @@ def _outer_uses(
         if start != group_start:
             reach = max(reach, group_end)
             group_start, group_end = start, end
-        if (reach >= end or group_end > end) and hit.target != _TOO_LONG:
+        if (reach >= end or group_end > end) and hit.target not in _UNWORKED:
             continue
         kept.append((start, end, hit))
     return kept

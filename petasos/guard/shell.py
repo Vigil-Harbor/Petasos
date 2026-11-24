@@ -337,6 +337,7 @@ def _after_cd(
     try:
         readings = _expand_path(targets[0], env, cwd, hedge=False)
     except _Unreadable:
+        owned.work.unreadable = True
         return None
     return readings[0] if native else readings[-1]
 
