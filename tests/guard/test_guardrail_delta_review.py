@@ -10,12 +10,13 @@ from __future__ import annotations
 import os
 import shlex
 import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from petasos.guard import bounds, guardrail, paths
+from petasos.guard import bounds, guardrail, paths, shell
 from petasos.guard.guardrail import recognize
+from petasos.guard.program import _code_names_path
 from petasos.hermes.guardrail import hermes_surface
 
 if TYPE_CHECKING:
@@ -156,6 +157,34 @@ def test_a_here_document_past_the_depth_limit_is_not_read(tmp_path: Path) -> Non
     assert hit is not None and hit.target == _TOO_DEEP
     # One level less is read, and the body changes nothing.
     assert _recognize(tmp_path, "python -c " + shlex.quote(code)) is None
+
+
+@pytest.mark.parametrize(
+    ("body", "decision"), [("", None), ("  \n\t\n", None), ("x = 1\n", _TOO_DEEP)]
+)
+def test_no_interpreter_reader_runs_past_the_depth_limit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, body: str, decision: str | None
+) -> None:
+    """A blank here-document body there is passed over; any other is too deep."""
+    past: list[str] = []
+    judge, names = shell._judge_code, _code_names_path
+
+    def judging(code: str, *args: Any, depth: int, **kwargs: Any) -> GuardrailHit | None:
+        if depth > bounds._MAX_DEPTH:
+            past.append(code)
+        return judge(code, *args, depth=depth, **kwargs)
+
+    def naming(code: str, *args: Any) -> GuardrailHit | None:
+        if not code.strip():
+            past.append(code)
+        return names(code, *args)
+
+    monkeypatch.setattr(shell, "_judge_code", judging)
+    monkeypatch.setattr(shell, "_code_names_path", naming)
+    code = 'import os; os.system("python <<END\n' + body + 'END")'
+    hit = _recognize(tmp_path, _sh("python -c " + shlex.quote(code)))
+    assert (hit.target if hit is not None else None) == decision
+    assert past == []
 
 
 @pytest.mark.parametrize(

@@ -360,8 +360,9 @@ def _heredoc_hit(
     at most once and on its own, and a hit from any of them counts: the
     Python check removes comments, so finding Python on the line must not
     take the place of the check for another interpreter. The body read as
-    a program is one level deeper than ``text``; past the limit a body left
-    unread is reported as too deep to inspect.
+    a program is one level deeper than ``text``. Past the limit no reader
+    runs: a blank body is passed over, and any other body is left unread and
+    reported as too deep to inspect.
     """
     for line, body in _heredocs(text):
         pairs = _spelled(line)
@@ -376,8 +377,11 @@ def _heredoc_hit(
                 checks.add("python")
             if programs & _INTERPRETERS:
                 checks.add("names")
-        if checks and depth >= _MAX_DEPTH and body.strip():
-            return GuardrailHit("settings", _TOO_DEEP)
+        if checks and depth >= _MAX_DEPTH:
+            # Nothing past the limit is read; only a body with text is left unread.
+            if body.strip():
+                return GuardrailHit("settings", _TOO_DEEP)
+            continue
         hit = None
         if "python" in checks:
             hit = _judge_code(body, owned, surface, env, cwd, depth=depth + 1)
