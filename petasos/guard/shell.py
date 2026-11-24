@@ -155,23 +155,23 @@ def _quoted_hit(
     depth: int,
     plain: tuple[str, ...] | None,
 ) -> GuardrailHit | None:
-    """A configuration write written inside a quoted word.
+    """A configuration write written as words a shell does not run as one.
 
     A shell does not run a quoted argument, but the text may still be run
     later (written to a script, passed to ``ssh``, kept in an alias). So the
     text of every word that holds a blank and names a writer's program or
-    verb is read again as commands, and so on inside it. There, a writer's
-    program word, or the verb such a rule also matches after an unknown
-    program (``config``), starts a match wherever it stands. This reading
-    can only add a match.
+    verb is read again as commands, and so on inside it. There, and among
+    the words of the command text itself, a writer's program word, or the
+    verb such a rule also matches after an unknown program (``config``),
+    starts a match wherever it stands: ``printf %s hermes config edit`` is
+    a change, as in the 0.5.0 guard. This reading can only add a match. The
+    exact plain command a rule exempts (see ``except_exact``) stays exempt.
 
     Each word that may start a match costs the words after it in its
     command, spent from the recognition's one word budget, so the cost stays
-    linear. Words in the command text itself are counted but not matched:
-    the shell reading has judged them. A text that runs out of budget is
-    reported as too long to inspect. Each level of quoting adds one to
-    ``depth``; quoted text deeper than ``_MAX_QUOTE_DEPTH`` is reported as
-    too deep.
+    linear. A text that runs out of budget is reported as too long to
+    inspect. Each level of quoting adds one to ``depth``; quoted text
+    deeper than ``_MAX_QUOTE_DEPTH`` is reported as too deep.
     """
     work = owned.work
     pending = [(commands, depth)]
@@ -190,8 +190,6 @@ def _quoted_hit(
                         continue
                     if not work.spend_words(len(words) - index - 1):
                         return GuardrailHit("settings", _TOO_LONG)
-                    if level == depth:
-                        continue
                     for start in starts:
                         hit = _writer_at(words, index, start, surface, rules, exempt)
                         if hit is not None:

@@ -10,6 +10,8 @@ import json
 import shlex
 from typing import TYPE_CHECKING
 
+import pytest
+
 from petasos.guard.guardrail import recognize
 from petasos.hermes.guardrail import hermes_surface
 
@@ -105,3 +107,22 @@ def test_embedded_commands_spend_one_word_budget(tmp_path: Path) -> None:
     hit = _hit(tmp_path, code, tool="execute_code")
     assert hit is not None and hit.target == _TOO_LONG
     assert _hit(tmp_path, f"import os\nos.system({piece})\n", tool="execute_code") is None
+
+
+@pytest.mark.parametrize(
+    ("command", "target"),
+    [
+        ("printf %s hermes config edit", "hermes config edit"),
+        ("echo hermes plugins disable petasos", "hermes plugins disable"),
+    ],
+)
+def test_writer_words_in_the_command_text_are_a_change(
+    tmp_path: Path, command: str, target: str
+) -> None:
+    hit = _hit(tmp_path, command)
+    assert hit is not None and hit.target == target
+
+
+def test_the_exact_plain_enable_stays_exempt(tmp_path: Path) -> None:
+    assert _hit(tmp_path, "hermes plugins enable petasos") is None
+    assert _hit(tmp_path, "echo hermes plugins enable petasos") is not None

@@ -227,7 +227,6 @@ def test_shell_path_disguises(tmp_path: Path) -> None:
 
 def test_a_different_plugin_and_a_mention_do_not_match(tmp_path: Path) -> None:
     assert _hit(tmp_path, "terminal", {"command": "hermes plugins disable other"}) is None
-    assert _hit(tmp_path, "terminal", {"command": "echo hermes plugins disable petasos"}) is None
     quiet = "HERMES_SAFE_MODE=0 hermes plugins list"
     assert _hit(tmp_path, "terminal", {"command": quiet}) is None
     assert (
@@ -861,7 +860,9 @@ def test_hermes_global_options_consume_their_values(tmp_path: Path, option: str)
     assert _hit(tmp_path, "terminal", {"command": command}) is not None
     if option not in {"--profile", "-p"}:
         # A value that happens to be a verb does not become the subcommand.
-        read = f"hermes {option} config set command_allowlist x"
+        # (``config`` is not used here: ``config set`` with a guarded key is
+        # a change wherever it stands among the words.)
+        read = f"hermes {option} plugins disable petasos"
         assert _hit(tmp_path, "terminal", {"command": read}) is None
 
 
@@ -906,11 +907,12 @@ def test_a_profile_after_the_verb_is_set_aside(tmp_path: Path, option: str) -> N
 
 
 @pytest.mark.parametrize("option", ["--model", "-m"])
-def test_an_unknown_program_option_value_is_not_its_verb(tmp_path: Path, option: str) -> None:
-    # An abbreviated or clustered form (``--mod``, ``-wm``) is still matched:
-    # the reading that gives only exact options a value is kept as well.
+def test_config_set_after_an_option_value_is_still_a_change(tmp_path: Path, option: str) -> None:
+    # The shell reading takes ``config`` as the option's value. The words are
+    # also read on their own, where ``config set`` with a guarded key is a
+    # change wherever it stands, as in the 0.5.0 guard.
     command = f"h {option} config set command_allowlist x"
-    assert _hit(tmp_path, "terminal", {"command": command}) is None
+    assert _hit(tmp_path, "terminal", {"command": command}) is not None
 
 
 @pytest.mark.parametrize(
@@ -945,13 +947,8 @@ def test_unknown_program_only_guards_listed_config_keys(
     [
         "hermes --json config show",
         "python -m hermes_cli.main config get command_allowlist",
-        "python -m other_cli config set command_allowlist x",
-        "python -mother_cli config set command_allowlist x",
         "ai.hermes approvals suggest",
         "git config set core.editor vim",
-        "git config set command_allowlist x",
-        "/usr/bin/git config unset plugins.enabled",
-        "npm config set command_allowlist x",
         "h plugins disable petasos",
         "h import x.zip",
         "h setup --reset",
@@ -968,6 +965,25 @@ def test_invocation_recognition_leaves_reads_and_unrelated_programs(
     tmp_path: Path, command: str
 ) -> None:
     assert _hit(tmp_path, "terminal", {"command": command}) is None
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "python -m other_cli config set command_allowlist x",
+        "python -mother_cli config set command_allowlist x",
+        "git config set command_allowlist x",
+        "/usr/bin/git config unset plugins.enabled",
+        "npm config set command_allowlist x",
+    ],
+)
+def test_a_guarded_key_after_any_program_is_a_change(tmp_path: Path, command: str) -> None:
+    """``config set|unset`` with a guarded key is a change whatever program runs it.
+
+    As in the 0.5.0 guard: exempting a program by name would let an alias of
+    that name through. This is conservative.
+    """
+    assert _hit(tmp_path, "terminal", {"command": command}) is not None
 
 
 @pytest.mark.parametrize(
