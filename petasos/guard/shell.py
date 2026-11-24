@@ -399,8 +399,8 @@ def _one_command(
     names, and a command it starts one level further; a script it carries
     is not read, and is reported as too deep to inspect.
     """
-    prepared, assignments = _strip_wrappers(command.argv)
-    prepared = _invocation(prepared, surface)
+    written, assignments = _strip_wrappers(command.argv)
+    prepared = _invocation(written, surface)
     program = _program(prepared[0]) if prepared else ""
     helping = program in {"hermes", "petasos"} and _asks_help(prepared)
     if not helping:
@@ -439,7 +439,8 @@ def _one_command(
             return GuardrailHit(command_rule.kind, command_rule.label)
     if helping:
         # Nothing else that changes a guardrail runs, but a redirect still writes.
-        return _mutation((), command.redirects, owned, env, cwd)
+        hit = _mutation((), command.redirects, owned, env, cwd)
+        return hit or _as_written(written, program, owned, env, cwd)
     exported = _export_hit(prepared, surface)
     if exported is not None:
         return exported
@@ -447,6 +448,7 @@ def _one_command(
     # The word after ``-m`` is a module name, not a file.
     acted = (prepared[0], *module[1:]) if module else prepared
     hit = _mutation(acted, command.redirects, owned, env, cwd)
+    hit = hit or _as_written(written, program, owned, env, cwd)
     if hit is not None:
         return hit
     if checks_only or depth >= _MAX_DEPTH:
@@ -476,6 +478,22 @@ def _one_command(
     if found is not None or program in _TEXT_ONLY or program in _READERS:
         return found
     return _started(prepared, owned, surface, rules, env, cwd, depth)
+
+
+def _as_written(
+    argv: tuple[str, ...], program: str, owned: _Owned, env: Mapping[str, str], cwd: str
+) -> GuardrailHit | None:
+    """The operand check of ``argv``'s program word as written, when it was read as ``program``.
+
+    A host-declared alias, path or module form is judged as the host's
+    program, whose operands may be verbs and names rather than files. The
+    word as written keeps its own operand check too, which can only add a
+    match: ``ai.hermes.exe --version name`` names the file ``name``.
+    """
+    if not argv or _program(argv[0]) == program:
+        return None
+    module = _python_module(argv) if _program(argv[0]) == "python" else None
+    return _mutation((argv[0], *module[1:]) if module else argv, (), owned, env, cwd)
 
 
 def _at_limit(
