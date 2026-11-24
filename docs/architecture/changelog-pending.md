@@ -104,6 +104,23 @@ deleted.
   reading to inspect; this is conservative, so `grep -r 'hermes config set
   command_allowlist' docs/` now asks.
 
+- The guardrail recogniser closes the remaining differences from the 0.5.0
+  guard. `hermes config set|unset` of the `plugins` mapping or any key in
+  it is a change (`hermes config set plugins.review_note demo`), for a
+  program word it cannot resolve as well, and `ai.hermes.exe` is read as
+  Hermes. A Hermes configuration write written as plain words after
+  another program is a change, as in quoted text, so `printf %s hermes
+  config edit`, `echo hermes plugins disable petasos` and
+  `git config set command_allowlist x` now ask. A here-document whose
+  opening line also runs Python is still read for the other interpreter
+  it feeds. One depth count runs through every kind of nested text,
+  Python and its command strings included, and a script left unread at
+  the limit is reported as too deep to inspect. One work budget covers
+  each tool call, and a working directory that keeps growing ends in
+  "command too long to inspect". Long PowerShell pipelines, many protected
+  paths in program text, and long `cd` chains no longer cost quadratic
+  time.
+
 - The Petasos tab was reworked in a designer and reviewer loop. Overview keeps
   the protection state apart from the job and strictness choices and offers two
   first-run steps on a profile where neither has been chosen. Activity opens its

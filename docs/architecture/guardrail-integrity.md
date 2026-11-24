@@ -33,7 +33,9 @@ happened:
 - Whether the plugin runs: the plugin directory, Hermes's enabled and disabled
   plugin lists, safe mode, the hook timeout, the profile pointer, and the
   commands that change them (`hermes plugins disable|remove|uninstall`,
-  `--safe-mode`, `hermes gateway restart`, `hermes config set` on those keys).
+  `--safe-mode`, `hermes gateway restart`, `hermes config set|unset` of the
+  `plugins` mapping or any key in it, since replacing the mapping replaces
+  those entries).
   Enabling the plugin with exactly `hermes plugins enable petasos`, as the
   tool call's whole command text, is not a change, unless the same command grants or revokes its tool-override
   permission (`--allow-tool-override`, `--no-allow-tool-override`), which
@@ -300,20 +302,34 @@ it got in.
     `cmd /c "..."`), which is read with that shell's rules: `-EncodedCommand`,
     `-File`, and a path or command built at runtime inside the script. See
     `hermes-host-facts.md`, section 19.
-  - Text nested more than three levels deep: a script handed to a shell,
-    `eval` or Python inside another, or a command started by another
-    (`timeout 5 ...`, `xargs ...`). A script left unread there is reported
-    as a change ("command nested too deeply to inspect"); a started command
-    there is judged without its scripts, and one started past it is not
-    read. Every command of a tool call is read, however long the text is;
-    the cost stays linear in its length.
-  - Quoted text is read again only for commands that write Hermes's
-    configuration, and conservatively: such a command anywhere in a quoted
-    argument is a change (`printf %s 'hermes config set command_allowlist x'`,
+  - Text nested more than three levels deep. One count covers every step
+    into nested text: a script handed to a shell, `eval`, Python,
+    PowerShell or cmd, a command string inside program text
+    (`os.system("...")`), a here-document read as a program,
+    `Invoke-Expression`, and a command started by another (`timeout 5 ...`,
+    `xargs ...`). At the limit a command is still judged by what it names,
+    and a command it starts one level further. A script left unread there,
+    or a command that would be started past it, is reported as a change
+    ("command nested too deeply to inspect"). Every command of a tool call
+    is read, however long the text is.
+  - Words a shell does not run as a command are read again only for
+    commands that write Hermes's configuration, and conservatively: such a
+    command anywhere in a quoted argument, or written as plain words after
+    another program, is a change (`printf %s hermes config edit`,
+    `echo hermes plugins disable petasos`,
     `grep -r 'hermes config set ...'`), and so is `config set` or
-    `config unset` of a guarded key after any program word there. A text
-    whose quoted-text reading runs out of its word budget is reported as
-    "command too long to inspect", as the 0.5.0 guard did.
+    `config unset` of a guarded key after any program word, `git` and
+    `npm` included, as in the 0.5.0 guard. Only the exact plain
+    `hermes plugins enable petasos` stays exempt.
+  - Work. Each tool call has one budget for the reading of words above and
+    one for working out paths, shared by every nested and quoted reading,
+    so the cost stays linear in the text's length. A text that runs out of
+    either is reported as "command too long to inspect", as the 0.5.0
+    guard did. A working directory that keeps growing (`cd a; cd a; ...`
+    thousands of times) runs out the path budget.
+  - A here-document inside a script handed to a shell or `eval`
+    (`sh -c "ruby <<EOF ..."`). Its lines are read as shell commands, but
+    not as the program text an interpreter would run.
   - Package managers other than `pip`, `pipx` and `uv` (`poetry`, `conda`),
     and an install from a requirements file or from the current directory.
   - A Python path built in a variable and used later
@@ -362,7 +378,7 @@ it got in.
     update every plugin. A word after it that names Petasos, or a flag such
     as `--apply`, still counts. A configuration key matches a guarded key
     only as a whole dotted segment, so `approvals_backup` is not
-    `approvals`.
+    `approvals` and `plugins_backup` is not `plugins`.
 
   Reads that are not on the reader list now ask. That includes `sed` and
   `perl` even without `-i`, `awk`, editors (including a read-only `vim -R`),
