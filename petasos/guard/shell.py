@@ -75,12 +75,34 @@ def _command_change(
     """
     if len(text) > _MAX_CHARS:
         text = text[:_MAX_CHARS]
+    key = ("text", text, cwd, 0, plain)
+    if key in owned.judged:
+        return owned.judged[key]
     rules = library_rules() + surface.commands
+    hit = _any_reading(text, owned, surface, rules, env, cwd, depth=0, plain=plain)
+    if hit is None:
+        hit = _heredoc_hit(text, owned, surface, env, cwd)
+    owned.judged[key] = hit
+    return hit
+
+
+def _any_reading(
+    text: str,
+    owned: _Owned,
+    surface: GuardrailSurface,
+    rules: tuple[CommandRule, ...],
+    env: Mapping[str, str],
+    cwd: str,
+    *,
+    depth: int,
+    plain: tuple[str, ...] | None = None,
+) -> GuardrailHit | None:
+    """The first hit under any reading of ``text`` (see ``_readings``)."""
     for commands in _readings(text):
-        hit = _each_command(commands, owned, surface, rules, env, cwd, depth=0, plain=plain)
+        hit = _each_command(commands, owned, surface, rules, env, cwd, depth=depth, plain=plain)
         if hit is not None:
             return hit
-    return _heredoc_hit(text, owned, surface, env, cwd)
+    return None
 
 
 def _each_command(
@@ -136,20 +158,22 @@ def _heredoc_hit(
     the other interpreters, where a line is not a command.
     """
     for line, body in _heredocs(text):
-        programs = set()
+        # Each reading of the opening line is judged on its own, so one that
+        # adds Python cannot take the place of another's interpreter check.
         for commands in _readings(line):
+            programs = set()
             for command in commands:
                 argv, _assignments = _strip_wrappers(command.argv)
                 if argv:
                     programs.add(_program(argv[0]))
-        if "python" in programs:
-            hit = _judge_code(body, owned, surface, env, cwd)
-        elif programs & _INTERPRETERS:
-            hit = _code_names_path(body, owned, env, cwd)
-        else:
-            continue
-        if hit is not None:
-            return hit
+            if "python" in programs:
+                hit = _judge_code(body, owned, surface, env, cwd)
+            elif programs & _INTERPRETERS:
+                hit = _code_names_path(body, owned, env, cwd)
+            else:
+                continue
+            if hit is not None:
+                return hit
     return None
 
 
@@ -386,11 +410,10 @@ def _nested(
     cwd: str,
     depth: int,
 ) -> GuardrailHit | None:
-    for commands in _readings(script):
-        hit = _each_command(commands, owned, surface, rules, env, cwd, depth=depth + 1)
-        if hit is not None:
-            return hit
-    return None
+    key = ("nested", script, cwd, depth + 1, None)
+    if key not in owned.judged:
+        owned.judged[key] = _any_reading(script, owned, surface, rules, env, cwd, depth=depth + 1)
+    return owned.judged[key]
 
 
 def _native(

@@ -11,9 +11,11 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from petasos.guard import shell
 from petasos.guard.guardrail import recognize
-from petasos.guard.paths import _native_drive
-from petasos.guard.shell_parse import _parse, _program, _readings
+from petasos.guard.paths import _native_drive, _owned
+from petasos.guard.shell import _heredoc_hit
+from petasos.guard.shell_parse import _parse, _program, _readings, _Simple
 from petasos.hermes.guardrail import hermes_surface
 
 if TYPE_CHECKING:
@@ -113,6 +115,43 @@ def test_a_drive_letter_word_is_read_as_the_shell_reads_it(
 def test_a_command_without_a_drive_letter_word_has_one_reading() -> None:
     assert len(_readings("rm hermes/conf\\ig.yaml")) == 1
     assert len(_readings("rm C:/x/hermes/config.yaml")) == 1
+
+
+@windows_only
+def test_a_reading_that_adds_python_keeps_the_other_interpreter_check(tmp_path: Path) -> None:
+    """The shell's reading runs perl's check on the document. The Windows-path
+    reading adds Python, whose check skips comments; it must not replace perl's.
+
+    Called directly: on the terminal tool the document's lines are also read
+    as shell commands, which already name this path.
+    """
+    home = tmp_path / "hermes"
+    home.mkdir()
+    config = home / "config.yaml"
+    config.write_text("plugins: {}\n", encoding="utf-8")
+    surface = hermes_surface([str(config)], roots=(str(home),))
+    owned = _owned((str(config),), surface, ())
+    text = f"perl -e 1; C:\\Tools\\python.exe <<EOF\n# '{config.as_posix()}'\nEOF"
+    hit = _heredoc_hit(text, owned, surface, {"HOME": str(tmp_path)}, str(tmp_path))
+    assert hit is not None
+    assert hit.kind == "settings"
+
+
+def test_a_command_both_readings_share_is_judged_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Program text the two readings share is not judged again, at any depth."""
+    judged: list[tuple[str, ...]] = []
+    original = shell._one_command
+
+    def counting(command: _Simple, *args: object, **kwargs: object) -> GuardrailHit | None:
+        judged.append(command.argv)
+        return original(command, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(shell, "_one_command", counting)
+    command = "python -c \"import os; os.system('echo ok')\" C:\\demo"
+    assert _recognize(tmp_path, "terminal", {"command": command}) is None
+    assert judged.count(("echo", "ok")) == 1
 
 
 @pytest.mark.parametrize(
