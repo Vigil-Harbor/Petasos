@@ -19,7 +19,7 @@ from petasos.guard.guardrail import recognize
 from petasos.hermes.guardrail import hermes_surface
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Callable, Mapping
     from pathlib import Path
 
     from petasos.guard.surface import GuardrailHit
@@ -199,3 +199,32 @@ def test_an_account_name_the_system_cannot_look_up_is_reported(
     assert hit is not None and hit.target == bounds._UNREADABLE
     # An account that does not exist is a name as written, as a shell reads it.
     assert _recognize(tmp_path, "rm ~pet-no-such-account") is None
+
+
+@pytest.mark.parametrize(
+    ("tool", "make"),
+    [
+        ("execute_code", lambda count: "os.system('" + "\\" * count + "x"),
+        ("execute_code", lambda count: "subprocess.run([" + "'a'  " * (count // 8) + "x"),
+        ("terminal", lambda count: 'python <<END\nos.popen("' + "\\" * count + "x\nEND"),
+    ],
+    ids=["backslashes", "argv-list", "here-document"],
+)
+def test_an_unclosed_quoted_argument_costs_linear_time(
+    tmp_path: Path, tool: str, make: Callable[[int], str]
+) -> None:
+    """A run of backslashes or spaced words with no closing quote or bracket is read once."""
+    times: list[float] = []
+    hits: list[GuardrailHit | None] = []
+    for growth in (1, 4, 16):
+        text = make(4000 * growth)
+        best = float("inf")
+        for _ in range(3):
+            started = time.perf_counter()
+            hit = _recognize(tmp_path, text, tool)
+            best = min(best, time.perf_counter() - started)
+        times.append(best)
+        hits.append(hit)
+    for growth, elapsed in zip((4, 16), times[1:], strict=True):
+        assert elapsed <= 3 * growth * times[0] + 0.05, (growth, times)
+    assert hits[0] == hits[1] == hits[2]

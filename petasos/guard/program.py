@@ -19,12 +19,17 @@ if TYPE_CHECKING:
 _CODE_TOOLS = frozenset({"execute_code", "python"})
 _READ_MODES = frozenset({"r", "rb", "rt"})
 _PATH_READ_METHODS = frozenset({"read_text", "read_bytes", "exists", "is_file", "stat"})
+# The call and the quote that opens its first argument. The argument itself
+# is found by ``_system_call_bodies``, which reads forward only.
 _SYSTEM_CALL = re.compile(
-    r"""(?:os\.system|os\.popen|subprocess\.(?:run|call|check_call|check_output|Popen|getoutput|getstatusoutput))\s*\(\s*(['"])(?P<body>(?:\\.|(?!\1).)*)\1""",
-    re.DOTALL,
+    r"""(?:os\.system|os\.popen|subprocess\.(?:run|call|check_call|check_output|Popen|getoutput|getstatusoutput))\s*\(\s*(['"])"""
 )
+# Quoted words, with a comma or white space between them. Each branch starts
+# with a different character, so a list with no closing bracket fails in
+# time linear in its length.
 _ARGV_LIST = re.compile(
-    r"""(?P<head>.{0,80})\[(?P<body>(?:\s*['"][^'"]+['"]\s*,?)+)\]""",
+    r"""(?P<head>.{0,80})\[(?P<body>\s*['"][^'"]+['"]"""
+    r"""(?:\s*(?:,\s*)?['"][^'"]+['"])*\s*,?)\]""",
     re.DOTALL,
 )
 _QUOTED = re.compile(r"""['"]([^'"]+)['"]""")
@@ -314,8 +319,49 @@ def _join_root(match: re.Match[str], env: Mapping[str, str]) -> str:
     return env.get(var, "")
 
 
+def _system_call_bodies(script: str) -> list[str]:
+    """The first quoted argument of each ``os.system``, ``os.popen`` or ``subprocess`` call.
+
+    The argument runs to the first quote of its kind that no backslash
+    escapes. With no such quote it runs to the last quote of its kind in the
+    text, where any earlier one is escaped; that is what the pattern this
+    replaces matched after backtracking, so no argument is lost. Each call
+    is read forward once, and reading resumes after its argument, so the
+    cost is linear in the length of the text.
+    """
+    last = {quote: script.rfind(quote) for quote in "'\""}
+    found: list[str] = []
+    at = 0
+    while (call := _SYSTEM_CALL.search(script, at)) is not None:
+        quote = call.group(1)
+        start = at = call.end()
+        if last[quote] < start:
+            continue
+        close = _unescaped(script, start, quote)
+        if close < 0:
+            close = last[quote]
+        found.append(script[start:close])
+        at = close + 1
+    return found
+
+
+def _unescaped(text: str, start: int, quote: str) -> int:
+    """The index of the first ``quote`` at or after ``start`` no backslash escapes, or -1."""
+    index = start
+    length = len(text)
+    while index < length:
+        char = text[index]
+        if char == "\\" and index + 1 < length:
+            index += 2
+        elif char == quote:
+            return index
+        else:
+            index += 1
+    return -1
+
+
 def _embedded(script: str) -> list[str]:
-    found = [match.group("body") for match in _SYSTEM_CALL.finditer(script)]
+    found = _system_call_bodies(script)
     for match in _ARGV_LIST.finditer(script):
         head = match.group("head")
         if not any(token in head for token in ("subprocess", "os.exec", "Popen", "execv")):
