@@ -686,6 +686,17 @@ def test_a_record_that_cannot_be_read_is_an_error_and_a_missing_one_is_empty(
         page()
 
 
+@pytest.mark.parametrize("max_bytes", [3, 4, 1_000_000])
+def test_a_rotated_record_that_is_not_a_file_is_an_error(tmp_path: Path, max_bytes: int) -> None:
+    """Also when the live record uses up the whole read budget."""
+    live = tmp_path / "petasos-enforcement.jsonl"
+    live.write_bytes(b"{}\n")
+    _rot(live).mkdir()
+    (_rot(live) / "placeholder").write_text("x", encoding="utf-8")
+    with pytest.raises(ApiError):
+        _page(live, max_bytes=max_bytes)
+
+
 def test_an_entry_without_a_signature_is_unsigned_not_changed(tmp_path: Path) -> None:
     """Only a signature that does not match is evidence of a change."""
     live = tmp_path / "petasos-enforcement.jsonl"
