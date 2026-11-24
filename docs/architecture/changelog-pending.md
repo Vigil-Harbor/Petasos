@@ -117,9 +117,18 @@ deleted.
   Python and its command strings included, and a script left unread at
   the limit is reported as too deep to inspect. One work budget covers
   each tool call, and a working directory that keeps growing ends in
-  "command too long to inspect". Long PowerShell pipelines, many protected
-  paths in program text, and long `cd` chains no longer cost quadratic
-  time.
+  "command too long to inspect". A tool call of any kind that runs out of
+  budget without finding a change is reported that way too, and a path
+  the budget could not pay for is never taken for a plain read in program
+  text. A here-document in a script handed to `sh -c` or `eval` is read
+  as the program it feeds (`sh -c "python <<END ..."`), and one that would
+  be read past the depth limit is reported as too deep to inspect. A
+  Hermes alias or module form (`ai.hermes.exe`, `ai.hermes`, `hermes.exe`
+  off Windows, `python -m hermes_cli`) keeps the operand check of the word
+  as written, so `ai.hermes.exe --version config.yaml` asks again. Long
+  PowerShell pipelines, many protected paths in program text, long
+  environment-variable path joins, and long `cd` chains no longer cost
+  quadratic time.
 
 - The Petasos tab was reworked in a designer and reviewer loop. Overview keeps
   the protection state apart from the job and strictness choices and offers two

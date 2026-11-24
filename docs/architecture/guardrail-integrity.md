@@ -308,10 +308,10 @@ it got in.
     (`os.system("...")`), a here-document read as a program,
     `Invoke-Expression`, and a command started by another (`timeout 5 ...`,
     `xargs ...`). At the limit a command is still judged by what it names,
-    and a command it starts one level further. A script left unread there,
-    or a command that would be started past it, is reported as a change
-    ("command nested too deeply to inspect"). Every command of a tool call
-    is read, however long the text is.
+    and a command it starts one level further. A script or here-document
+    body left unread there, or a command that would be started past it, is
+    reported as a change ("command nested too deeply to inspect"). Every
+    command of a tool call is read, however long the text is.
   - Words a shell does not run as a command are read again only for
     commands that write Hermes's configuration, and conservatively: such a
     command anywhere in a quoted argument, or written as plain words after
@@ -325,11 +325,15 @@ it got in.
     one for working out paths, shared by every nested and quoted reading,
     so the cost stays linear in the text's length. A text that runs out of
     either is reported as "command too long to inspect", as the 0.5.0
-    guard did. A working directory that keeps growing (`cd a; cd a; ...`
-    thousands of times) runs out the path budget.
-  - A here-document inside a script handed to a shell or `eval`
-    (`sh -c "ruby <<EOF ..."`). Its lines are read as shell commands, but
-    not as the program text an interpreter would run.
+    guard did. A path the budget could not pay for is never treated as a
+    plain read, and a tool call of any kind that ran out of budget without
+    finding a change is reported the same way. A working directory that
+    keeps growing (`cd a; cd a; ...`) runs out the path budget. Measured
+    from `/private/tmp` on the development machine, `cd a; ` repeated 993
+    times is read in full and 994 times runs out the budget; either takes
+    about 0.7 s, and a longer chain stops at the same point and costs no
+    more. The review measured the same edge at 994 and 995 commands, in
+    about 0.6 s.
   - Package managers other than `pip`, `pipx` and `uv` (`poetry`, `conda`),
     and an install from a requirements file or from the current directory.
   - A Python path built in a variable and used later
@@ -390,7 +394,12 @@ it got in.
   `hermes`, `petasos`, `pip` and `uv` take verbs and names, and their forms
   that change a guardrail are listed as rules. For those four a bare word is
   not read as a path, so `petasos doctor` does not ask in a directory that
-  happens to hold a `petasos` folder.
+  happens to hold a `petasos` folder. A program word the host reads as
+  `hermes` (`ai.hermes.exe`, `ai.hermes`, `hermes.exe` off Windows, a path
+  to one of them, or `python -m hermes_cli`) is read both ways: as Hermes
+  for its rules, and as written for its operands. So
+  `ai.hermes.exe --version config.yaml` asks, as it did before the alias
+  was known.
 
 ## Behaviour change
 
