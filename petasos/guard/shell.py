@@ -6,7 +6,7 @@ import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from petasos.guard.bounds import _MAX_DEPTH
+from petasos.guard.bounds import _MAX_DEPTH, _MAX_QUOTE_DEPTH, _WORD_BUDGET
 from petasos.guard.mutations import (
     _COPIES,
     _INTERPRETERS,
@@ -58,6 +58,8 @@ _KNOWN_PROGRAMS = (
     | {"python", "eval", "git", "npm", "npx", "pnpm", "yarn", "dd", "mv", "rm", "chmod"}
 )
 _TOO_DEEP = "command nested too deeply to inspect"
+_TOO_LONG = "command too long to inspect"
+_BLANKS = (" ", "\t", "\n")
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,18 +75,44 @@ class _Rules:
     unknown: tuple[CommandRule, ...]
     starters: frozenset[str]
     flag_programs: frozenset[str]
+    # The rules that write configuration (``help_clears`` off), which the
+    # reading of quoted text matches, and what may start one there.
+    writers: Mapping[str, tuple[CommandRule, ...]]
+    unknown_writers: tuple[CommandRule, ...]
+    verbs: frozenset[str]
+    invoked: frozenset[str]
+    names: tuple[str, ...]
 
 
 def _index(rules: tuple[CommandRule, ...], surface: GuardrailSurface) -> _Rules:
     grouped: dict[str, list[CommandRule]] = {}
+    writing: dict[str, list[CommandRule]] = {}
     for rule in rules:
         grouped.setdefault(rule.words[0].casefold(), []).append(rule)
+        if not rule.help_clears:
+            writing.setdefault(rule.words[0].casefold(), []).append(rule)
     flag_programs = frozenset(flag.program.casefold() for flag in surface.flags)
+    unknown = tuple(rule for rule in rules if rule.unknown_program and rule.tail is not None)
+    unknown_writers = tuple(rule for rule in unknown if not rule.help_clears)
+    verbs = frozenset(rule.words[1].casefold() for rule in unknown_writers if len(rule.words) > 1)
+    invoked = set(writing)
+    for program in surface.programs:
+        if program.name in writing:
+            invoked.update(program.aliases)
+    names = invoked | verbs
+    for program in surface.programs:
+        if program.name in writing:
+            names.update(program.modules)
     return _Rules(
         by_program={program: tuple(found) for program, found in grouped.items()},
-        unknown=tuple(rule for rule in rules if rule.unknown_program and rule.tail is not None),
+        unknown=unknown,
         starters=frozenset(grouped) | flag_programs | _WRAPPERS | _SHELLS | {"python", "eval"},
         flag_programs=flag_programs,
+        writers={program: tuple(found) for program, found in writing.items()},
+        unknown_writers=unknown_writers,
+        verbs=verbs,
+        invoked=frozenset(name.casefold() for name in invoked),
+        names=tuple(sorted(name.casefold() for name in names)),
     )
 
 
@@ -104,10 +132,110 @@ def _command_change(
     consults it.
     """
     rules = _index(library_rules() + surface.commands, surface)
-    hit = _each_command(_spelled(text), owned, surface, rules, env, cwd, depth=0, plain=plain)
-    if hit is not None:
-        return hit
-    return _heredoc_hit(text, owned, surface, env, cwd)
+    commands = _spelled(text)
+    hit = _each_command(commands, owned, surface, rules, env, cwd, depth=0, plain=plain)
+    if hit is None:
+        hit = _heredoc_hit(text, owned, surface, env, cwd)
+    if hit is None:
+        hit = _quoted_hit(commands, surface, rules)
+    return hit
+
+
+def _quoted_hit(
+    commands: list[tuple[_Simple, _Simple | None]],
+    surface: GuardrailSurface,
+    rules: _Rules,
+) -> GuardrailHit | None:
+    """A configuration write written inside a quoted word.
+
+    A shell does not run a quoted argument, but the text may still be run
+    later (written to a script, passed to ``ssh``, kept in an alias). So the
+    text of every word that holds a blank and names a writer's program or
+    verb is read again as commands, to any depth. There, a writer's program
+    word, or the verb such a rule also matches after an unknown program
+    (``config``), starts a match wherever it stands. This reading can only
+    add a match.
+
+    Each word that may start a match costs the words after it in its
+    command, counted against one budget for the whole text, so the cost
+    stays linear. Words in the command text itself are counted but not
+    matched: the shell reading has judged them. A text that runs out of
+    budget is reported as too long to inspect, and quoted text nested
+    deeper than ``_MAX_QUOTE_DEPTH`` as too deep.
+    """
+    budget = _WORD_BUDGET
+    pending = [(commands, 0)]
+    while pending:
+        parsed, depth = pending.pop()
+        for command, spelled in parsed:
+            for words in (command.argv,) if spelled is None else (command.argv, spelled.argv):
+                for index, word in enumerate(words):
+                    if words is command.argv and _names_writer(word, rules):
+                        if depth == _MAX_QUOTE_DEPTH:
+                            return GuardrailHit("settings", _TOO_DEEP)
+                        pending.append((_spelled(word), depth + 1))
+                    start = _writer_start(words, index, surface, rules)
+                    if start is None:
+                        continue
+                    budget -= len(words) - index - 1
+                    if budget < 0:
+                        return GuardrailHit("settings", _TOO_LONG)
+                    if depth == 0:
+                        continue
+                    hit = _writer_at(words, index, start, surface, rules)
+                    if hit is not None:
+                        return hit
+    return None
+
+
+def _names_writer(word: str, rules: _Rules) -> bool:
+    """True when ``word`` holds a blank and a writer's program, alias, module or verb."""
+    if not any(blank in word for blank in _BLANKS):
+        return False
+    folded = word.casefold()
+    return any(name in folded for name in rules.names)
+
+
+def _writer_start(
+    words: tuple[str, ...], index: int, surface: GuardrailSurface, rules: _Rules
+) -> str | None:
+    """``"program"`` or ``"verb"`` when a writer may start at ``words[index]``."""
+    word = words[index]
+    folded = word.casefold()
+    if folded in rules.verbs:
+        return "verb"
+    # The name ``_invocation`` compares, then the program's own name.
+    if folded.replace("\\", "/").rsplit("/", 1)[-1] in rules.invoked:
+        return "program"
+    program = _program(word)
+    if program in rules.writers:
+        return "program"
+    if program == "python":
+        # Interpreter options come first; a few words are enough to find ``-m``.
+        window = _invocation(words[index : index + 8], surface)
+        if window[0] != word and _program(window[0]) in rules.writers:
+            return "program"
+    return None
+
+
+def _writer_at(
+    words: tuple[str, ...], index: int, start: str, surface: GuardrailSurface, rules: _Rules
+) -> GuardrailHit | None:
+    if start == "verb":
+        standing: dict[str, tuple[tuple[str, ...], ...]] = {}
+        for rule in rules.unknown_writers:
+            name = rule.words[0]
+            if name not in standing:
+                standing[name] = _readings((name, *words[index:]), surface)
+            if any(_rule_matches(candidate, rule) for candidate in standing[name]):
+                return GuardrailHit(rule.kind, rule.label)
+        return None
+    prepared = _invocation(words[index:], surface)
+    readings = _readings(prepared, surface)
+    for rule in rules.writers.get(_program(prepared[0]), ()):
+        if any(_rule_matches(candidate, rule) for candidate in readings):
+            return GuardrailHit(rule.kind, rule.label)
+    return None
 
 
 def _each_command(

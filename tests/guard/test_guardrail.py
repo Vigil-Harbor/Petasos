@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ntpath
 import os
+import shlex
 import time
 from types import SimpleNamespace
 from typing import TYPE_CHECKING
@@ -516,7 +517,6 @@ def test_each_enumerated_hermes_command(tmp_path: Path, command: str, kind: str)
         "pip install requests",
         "hermes config set display.theme teal",
         "git commit -m 'docs: hermes gateway restart steps'",
-        "echo 'hermes plugins disable petasos' > /tmp/notes.txt",
         "hermes plugins auto-update",
         "hermes plugins update kanban",
         "hermes plugins install other",
@@ -948,7 +948,6 @@ def test_unknown_program_only_guards_listed_config_keys(
         "git config set command_allowlist x",
         "/usr/bin/git config unset plugins.enabled",
         "npm config set command_allowlist x",
-        "grep -r 'hermes config set command_allowlist' docs/",
         "h plugins disable petasos",
         "h import x.zip",
         "h setup --reset",
@@ -965,6 +964,55 @@ def test_invocation_recognition_leaves_reads_and_unrelated_programs(
     tmp_path: Path, command: str
 ) -> None:
     assert _hit(tmp_path, "terminal", {"command": command}) is None
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "echo 'hermes plugins disable petasos' > /tmp/notes.txt",
+        "grep -r 'hermes config set command_allowlist' docs/",
+        "printf %s 'hermes config set command_allowlist x'",
+        "echo 'then run: $H -p work config set approvals.mode off'",
+        "ssh host 'hermes config unset petasos'",
+        "echo \"sh -c 'hermes config edit'\"",
+        # In quoted text any program word before ``config set`` and a guarded
+        # key counts, as in the 0.5.0 guard: the program is not resolved there.
+        "echo 'git config set command_allowlist x'",
+    ],
+)
+def test_a_configuration_write_inside_quoted_text_is_a_change(
+    tmp_path: Path, command: str
+) -> None:
+    """Quoted text may be run later, so a configuration write in it is a change.
+
+    This is conservative: text kept only as data is reported too.
+    """
+    hit = _hit(tmp_path, "terminal", {"command": command})
+    assert hit is not None and hit.kind in {"settings", "plugin"}, command
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "git commit -m 'docs: hermes gateway restart steps'",
+        "echo 'hermes config get command_allowlist'",
+        "echo 'hermes config set display.theme teal'",
+        "echo 'hermes plugins list'",
+    ],
+)
+def test_quoted_text_without_a_configuration_write_is_not_a_change(
+    tmp_path: Path, command: str
+) -> None:
+    assert _hit(tmp_path, "terminal", {"command": command}) is None
+
+
+def test_quoted_text_nested_within_the_limit_is_read(tmp_path: Path) -> None:
+    # Each level quotes the one inside it, so the text grows quickly.
+    text = "hermes config set command_allowlist x"
+    for _ in range(5):
+        text = "echo " + shlex.quote(text)
+    hit = _hit(tmp_path, "terminal", {"command": text})
+    assert hit is not None and hit.target == "hermes config set command_allowlist"
 
 
 @pytest.mark.parametrize(
