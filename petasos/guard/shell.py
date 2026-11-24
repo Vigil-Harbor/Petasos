@@ -174,17 +174,18 @@ def _quoted_hit(
                         if depth == _MAX_QUOTE_DEPTH:
                             return GuardrailHit("settings", _TOO_DEEP)
                         pending.append((_spelled(word), depth + 1))
-                    start = _writer_start(words, index, surface, rules)
-                    if start is None:
+                    starts = _writer_starts(words, index, surface, rules)
+                    if not starts:
                         continue
                     budget -= len(words) - index - 1
                     if budget < 0:
                         return GuardrailHit("settings", _TOO_LONG)
                     if depth == 0:
                         continue
-                    hit = _writer_at(words, index, start, surface, rules)
-                    if hit is not None:
-                        return hit
+                    for start in starts:
+                        hit = _writer_at(words, index, start, surface, rules)
+                        if hit is not None:
+                            return hit
     return None
 
 
@@ -196,26 +197,34 @@ def _names_writer(word: str, rules: _Rules) -> bool:
     return any(name in folded for name in rules.names)
 
 
-def _writer_start(
+def _writer_starts(
     words: tuple[str, ...], index: int, surface: GuardrailSurface, rules: _Rules
-) -> str | None:
-    """``"program"`` or ``"verb"`` when a writer may start at ``words[index]``."""
+) -> tuple[str, ...]:
+    """How a writer may start at ``words[index]``: ``"verb"``, ``"program"``, both or neither.
+
+    A word that is both a verb and a writer's program is read both ways.
+    """
     word = words[index]
     folded = word.casefold()
-    if folded in rules.verbs:
-        return "verb"
+    starts = ("verb",) if folded in rules.verbs else ()
+    return (*starts, "program") if _starts_program(words, index, surface, rules) else starts
+
+
+def _starts_program(
+    words: tuple[str, ...], index: int, surface: GuardrailSurface, rules: _Rules
+) -> bool:
+    word = words[index]
     # The name ``_invocation`` compares, then the program's own name.
-    if folded.replace("\\", "/").rsplit("/", 1)[-1] in rules.invoked:
-        return "program"
+    if word.casefold().replace("\\", "/").rsplit("/", 1)[-1] in rules.invoked:
+        return True
     program = _program(word)
     if program in rules.writers:
-        return "program"
+        return True
     if program == "python":
         # Interpreter options come first; a few words are enough to find ``-m``.
         window = _invocation(words[index : index + 8], surface)
-        if window[0] != word and _program(window[0]) in rules.writers:
-            return "program"
-    return None
+        return window[0] != word and _program(window[0]) in rules.writers
+    return False
 
 
 def _writer_at(
@@ -306,9 +315,11 @@ def _heredoc_hit(
     shell reading the document would run. This adds the reading for Python and
     the other interpreters, where a line is not a command.
 
-    The opening line's shell reading and its Windows-path spelling each choose
-    a check, so a spelling that adds Python cannot take the place of the
-    other's interpreter check. Each check runs at most once.
+    Every program on the opening line, in its shell reading and in its
+    Windows-path spelling, adds the check for its language. Each check runs
+    at most once and on its own, and a hit from any of them counts: the
+    Python check removes comments, so finding Python on the line must not
+    take the place of the check for another interpreter.
     """
     for line, body in _heredocs(text):
         pairs = _spelled(line)
@@ -321,7 +332,7 @@ def _heredoc_hit(
                     programs.add(_program(argv[0]))
             if "python" in programs:
                 checks.add("python")
-            elif programs & _INTERPRETERS:
+            if programs & _INTERPRETERS:
                 checks.add("names")
         hit = None
         if "python" in checks:
