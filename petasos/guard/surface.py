@@ -94,12 +94,23 @@ class EnvRule:
 
 @dataclass(frozen=True, slots=True)
 class CommandProgram:
-    """Host-supplied executable names, Python modules and global value options."""
+    """Host-supplied executable names, Python modules and global options.
+
+    The options are those the program accepts before its first verb.
+    ``value_options`` take the next word as their value and
+    ``optional_value_options`` may. ``flag_options`` take none; they are
+    listed so that an abbreviated long option can be resolved the way
+    argparse resolves it. ``stripped_options`` are removed with their value
+    wherever they appear before ``--``, before the rest is parsed.
+    """
 
     name: str
     aliases: tuple[str, ...] = ()
     modules: tuple[str, ...] = ()
     value_options: frozenset[str] = frozenset()
+    optional_value_options: frozenset[str] = frozenset()
+    flag_options: frozenset[str] = frozenset()
+    stripped_options: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True, slots=True)

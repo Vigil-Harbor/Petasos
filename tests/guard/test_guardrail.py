@@ -866,6 +866,54 @@ def test_hermes_global_options_consume_their_values(tmp_path: Path, option: str)
 
 
 @pytest.mark.parametrize(
+    "option",
+    [
+        "-p work",
+        "--profile work",
+        "--profile=work",
+        "-m some-model",
+        "--mod some-model",
+        "--reas high",
+        "-wm some-model",
+        "-c",
+        "-c session",
+        "--continue session",
+        "--cont session",
+        "-c --yolo",
+        "--yolo --tui -w",
+        "-s a -s b",
+        "--",
+    ],
+)
+@pytest.mark.parametrize("program", ["hermes", "h", "$H", "$HERMES_BIN"])
+def test_hermes_global_option_forms_before_the_verb(
+    tmp_path: Path, program: str, option: str
+) -> None:
+    """Hermes's parser reads these as options, so the verb still follows.
+
+    For ``hermes`` itself a profile option is also a change of its own.
+    """
+    command = f"{program} {option} config set command_allowlist x"
+    assert _hit(tmp_path, "terminal", {"command": command}) is not None, command
+
+
+@pytest.mark.parametrize("option", ["-p work", "--profile work", "--profile=work"])
+def test_a_profile_after_the_verb_is_set_aside(tmp_path: Path, option: str) -> None:
+    """Hermes removes the profile option wherever it is before reading the rest."""
+    command = f"h config set {option} command_allowlist x"
+    hit = _hit(tmp_path, "terminal", {"command": command})
+    assert hit is not None and hit.kind == "settings"
+
+
+@pytest.mark.parametrize("option", ["--model", "-m"])
+def test_an_unknown_program_option_value_is_not_its_verb(tmp_path: Path, option: str) -> None:
+    # An abbreviated or clustered form (``--mod``, ``-wm``) is still matched:
+    # the reading that gives only exact options a value is kept as well.
+    command = f"h {option} config set command_allowlist x"
+    assert _hit(tmp_path, "terminal", {"command": command}) is None
+
+
+@pytest.mark.parametrize(
     "key",
     [
         "command_allowlist",

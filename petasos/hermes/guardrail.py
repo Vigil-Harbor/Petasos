@@ -24,8 +24,10 @@ _PLUGIN_TAILS = (
 # ``petasos`` is the plugin's own top-level section. Petasos reads its
 # settings elsewhere, but a write there is still treated as a change.
 _SETTINGS_TAILS = ("plugins.entries.petasos", "command_allowlist", "approvals", "petasos")
-# Hermes's top-level options whose next word is a value, rather than a verb
-# (tools/approval_config_set.py). Other option words stand alone.
+# Hermes's top-level options (hermes_cli/_parser.py, ``_add_top_level_flags``),
+# matched for ``hermes`` and for a program word that cannot be resolved.
+# These take the next word as their value, rather than a verb. ``--config``
+# is not one of Hermes's; Hermes refuses it, so the command does not run.
 _GLOBAL_VALUES = frozenset(
     {
         "--profile",
@@ -48,6 +50,34 @@ _GLOBAL_VALUES = frozenset(
         "--cpu-profile",
     }
 )
+# ``--continue`` takes the next word unless it starts with ``-``.
+_GLOBAL_OPTIONAL_VALUES = frozenset({"--continue", "-c"})
+_GLOBAL_FLAGS = frozenset(
+    {
+        "--help",
+        "-h",
+        "--version",
+        "-V",
+        "--no-restore-cwd",
+        "--worktree",
+        "-w",
+        "--accept-hooks",
+        "--yolo",
+        "--pass-session-id",
+        "--checkpoints",
+        "--ignore-user-config",
+        "--ignore-rules",
+        "--safe-mode",
+        "--tui",
+        "--native",
+        "--tui-native",
+        "--cli",
+        "--dev",
+    }
+)
+# Hermes removes ``-p``/``--profile`` and its value wherever it appears before
+# ``--``, before argparse runs (hermes_cli/main.py, ``_scan_profile_flag``).
+_PROFILE_OPTIONS = frozenset({"--profile", "-p"})
 # ``hermes update`` restarts the processes that run agents unless the flag
 # makes the invocation read-only. See hermes-host-facts.md.
 _UPDATE_READS = ("--check", "--plan", "--list-venv-holders", "--install-id")
@@ -276,6 +306,9 @@ def hermes_surface(paths: Iterable[str], roots: Iterable[str] = ()) -> Guardrail
                 aliases=("ai.hermes", "hermes.exe"),
                 modules=("hermes_cli", "hermes_cli.main"),
                 value_options=_GLOBAL_VALUES,
+                optional_value_options=_GLOBAL_OPTIONAL_VALUES,
+                flag_options=_GLOBAL_FLAGS,
+                stripped_options=_PROFILE_OPTIONS,
             ),
         ),
         flags=(
