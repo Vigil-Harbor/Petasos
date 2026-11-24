@@ -84,6 +84,16 @@ def test_a_long_powershell_pipeline_costs_linear_time(tmp_path: Path) -> None:
     assert _assert_linear(tmp_path, make, 500) == [None, None, None]
 
 
+def test_many_protected_path_uses_in_program_text_cost_linear_time(tmp_path: Path) -> None:
+    config = str(tmp_path / "hermes" / "config.yaml")
+
+    def make(count: int) -> str:
+        line = f"print(open('{config}').read(), Path('{config}').exists())"
+        return "\n".join([line] * count)
+
+    assert _assert_linear(tmp_path, make, 300, tool="execute_code") == [None, None, None]
+
+
 @pytest.mark.parametrize(
     "make",
     [

@@ -61,6 +61,9 @@ _JOIN_HEAD = re.compile(
 )
 _JOIN_PART = re.compile(r"""\s*,\s*(['"])([^'"]+)\1""")
 _JOIN_END = re.compile(r"""\s*\)""")
+# What follows a path given to ``open``: no mode, or a literal one.
+_OPEN_TAIL = re.compile(r"""\s*(?:\)|,\s*(?:(['"])([^'"]*)\1\s*)?\))""")
+_PATH_READ_TAIL = re.compile(r"\s*\)\s*\.(?:" + "|".join(sorted(_PATH_READ_METHODS)) + r")\s*\(")
 
 
 def _strip_python_comments(code: str) -> str:
@@ -130,27 +133,34 @@ def _code_names_path(
 
 
 def _is_plain_code_read(code: str, start: int, end: int) -> bool:
-    prefix = code[:start]
-    if re.search(r"(?:\bopen)\s*\(\s*$", prefix) and _open_tail_is_read(code[end:]):
-        return True
-    if re.search(r"(?:\bpathlib\.Path|\bPath)\s*\(\s*$", prefix):
-        rest = code[end:].lstrip()
-        method = "|".join(sorted(_PATH_READ_METHODS))
-        if re.match(rf"\)\s*\.(?:{method})\s*\(", rest):
-            return True
+    """True when the use at ``start:end`` is the argument of a plain read.
+
+    Only the text next to the use is looked at, so each use costs the
+    length of the call around it, not of the whole program.
+    """
+    called = _call_before(code, start).rsplit(".", 1)[-1]
+    if called == "open":
+        tail = _OPEN_TAIL.match(code, end)
+        return tail is not None and (tail.group(2) is None or tail.group(2) in _READ_MODES)
+    if called == "Path":
+        return _PATH_READ_TAIL.match(code, end) is not None
     return False
 
 
-def _open_tail_is_read(rest: str) -> bool:
-    """True when what follows the path is no mode, or a literal read mode."""
-    body = rest.lstrip()
-    if body.startswith(")"):
-        return True
-    match = re.match(r""",\s*(?:(['"])([^'"]*)\1\s*)?\)""", body)
-    if match is None:
-        return False
-    mode = match.group(2)
-    return mode is None or mode in _READ_MODES
+def _call_before(code: str, start: int) -> str:
+    """The dotted name whose call bracket opens just before ``start``, or ``""``."""
+    index = start
+    while index > 0 and code[index - 1].isspace():
+        index -= 1
+    if index == 0 or code[index - 1] != "(":
+        return ""
+    index -= 1
+    while index > 0 and code[index - 1].isspace():
+        index -= 1
+    end = index
+    while index > 0 and (code[index - 1].isalnum() or code[index - 1] in "_."):
+        index -= 1
+    return code[index:end]
 
 
 def _protected_uses(
@@ -159,7 +169,12 @@ def _protected_uses(
     env: Mapping[str, str],
     cwd: str,
 ) -> list[tuple[int, int, GuardrailHit]]:
-    """Each protected path use as ``(start, end, hit)``. A use inside another is dropped."""
+    """Each protected path use as ``(start, end, hit)``, in source order.
+
+    A use inside another is dropped. Quoted strings are found in order and do
+    not overlap, so whether a bare path sits inside one is decided by walking
+    both in step.
+    """
     found: list[tuple[int, int, GuardrailHit]] = []
     quoted: list[tuple[int, int]] = []
     for match in _QUOTED_STRING.finditer(code):
@@ -168,9 +183,12 @@ def _protected_uses(
         hit = _match_path(text, owned, env, cwd) if text else None
         if hit is not None:
             found.append((match.start(), match.end(), hit))
+    at = 0
     for match in _BARE_PATH.finditer(code):
         start, end = match.span()
-        if any(left <= start and end <= right for left, right in quoted):
+        while at + 1 < len(quoted) and quoted[at + 1][0] <= start:
+            at += 1
+        if quoted and quoted[at][0] <= start and end <= quoted[at][1]:
             continue
         hit = _match_path(match.group(0), owned, env, cwd)
         if hit is not None:
@@ -246,18 +264,26 @@ def _expression_uses(
 def _outer_uses(
     found: list[tuple[int, int, GuardrailHit]],
 ) -> list[tuple[int, int, GuardrailHit]]:
-    """Drop a use that sits strictly inside another, so the outer call is judged."""
+    """Drop a use that sits strictly inside another, so the outer call is judged.
+
+    The uses are sorted by start, the longest first among those that start
+    together, and then read once. A use is inside another when one that
+    started earlier reaches at least as far, or one that starts with it
+    reaches further. Equal spans are all kept.
+    """
+    ordered = sorted(found, key=lambda use: (use[0], -use[1]))
     kept: list[tuple[int, int, GuardrailHit]] = []
-    for index, (start, end, hit) in enumerate(found):
-        inner = False
-        for other, (left, right, _other) in enumerate(found):
-            if other == index:
-                continue
-            if left <= start and end <= right and (left < start or end < right):
-                inner = True
-                break
-        if not inner:
-            kept.append((start, end, hit))
+    # The furthest end of the uses that started before the current start.
+    reach = -1
+    group_start = -1
+    group_end = -1
+    for start, end, hit in ordered:
+        if start != group_start:
+            reach = max(reach, group_end)
+            group_start, group_end = start, end
+        if reach >= end or group_end > end:
+            continue
+        kept.append((start, end, hit))
     return kept
 
 
