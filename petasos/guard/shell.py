@@ -16,7 +16,13 @@ from petasos.guard.mutations import (
     _mutation,
     _operands,
 )
-from petasos.guard.native_shell import _native_parse, _native_reads, _native_script, _native_shell
+from petasos.guard.native_shell import (
+    _native_parse,
+    _native_reads,
+    _native_script,
+    _native_shell,
+    _passive_after,
+)
 from petasos.guard.options import _readings
 from petasos.guard.paths import _expand_path, _Owned
 from petasos.guard.program import _code_names_path, _embedded, _strip_python_comments
@@ -611,12 +617,14 @@ def _native(
     """A script given to PowerShell or cmd, judged command by command.
 
     A reader of that shell is judged by its redirects only. ``Invoke-Expression``
-    is PowerShell's ``eval``.
+    is PowerShell's ``eval``. Whether every later command in a pipeline only
+    reads is worked out once per pipeline, from its end.
     """
     for pipeline in _native_parse(script, shell, env):
+        passive = _passive_after(shell, pipeline)
         for index, (command, plain) in enumerate(pipeline):
             argv = command.argv
-            if plain and _native_reads(shell, argv, pipeline[index + 1 :]):
+            if plain and _native_reads(shell, argv, passive[index + 1]):
                 hit = _mutation((), command.redirects, owned, env, cwd)
             else:
                 hit = _one_command(command, owned, surface, rules, env, cwd, depth=depth + 1)

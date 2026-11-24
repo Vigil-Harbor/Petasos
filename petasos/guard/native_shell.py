@@ -85,6 +85,7 @@ _PS_PASSIVE = frozenset(
         "where-object",
     }
 )
+_PS_TAKES_OBJECTS = _PS_SCRIPT_READS | _PS_PASSIVE
 _CMD_READS = frozenset(
     {"chdir", "comp", "dir", "fc", "find", "findstr", "more", "tree", "type", "where"}
 )
@@ -148,24 +149,35 @@ def _powershell_script(argv: Sequence[str], *, file_first: bool) -> str | None:
     return None
 
 
-def _native_reads(
-    shell: str, argv: tuple[str, ...], later: Sequence[tuple[_Simple, bool]]
-) -> bool:
+def _native_reads(shell: str, argv: tuple[str, ...], later_passive: bool) -> bool:
     """True when the program only reads, inside a script given to ``shell``.
 
     In PowerShell a reader whose objects go on to a cmdlet that is not a
-    reader can hand that cmdlet the path (``Get-Item x | Remove-Item``).
+    reader can hand that cmdlet the path (``Get-Item x | Remove-Item``), so
+    ``later_passive`` must say that every later command in the pipeline is
+    a plain reader or passive (see ``_passive_after``).
     """
     program = _program(argv[0]) if argv else ""
     if shell == "cmd":
         return program in _CMD_READS
-    if program not in _PS_SCRIPT_READS:
-        return False
-    for command, plain in later:
+    return program in _PS_SCRIPT_READS and later_passive
+
+
+def _passive_after(shell: str, pipeline: Sequence[tuple[_Simple, bool]]) -> list[bool]:
+    """For each position, whether every command from there to the pipeline's end is passive.
+
+    Worked out once, from the end, so a long pipeline costs linear time.
+    The entry past the last command is true. cmd does not pass objects on,
+    so there every entry is true.
+    """
+    passive = [True] * (len(pipeline) + 1)
+    if shell == "cmd":
+        return passive
+    for index in range(len(pipeline) - 1, -1, -1):
+        command, plain = pipeline[index]
         name = _program(command.argv[0]) if command.argv else ""
-        if not plain or name not in _PS_SCRIPT_READS | _PS_PASSIVE:
-            return False
-    return True
+        passive[index] = passive[index + 1] and plain and name in _PS_TAKES_OBJECTS
+    return passive
 
 
 def _native_parse(text: str, shell: str, env: Mapping[str, str]) -> list[_Pipeline]:
