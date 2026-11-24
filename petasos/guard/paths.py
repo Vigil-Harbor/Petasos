@@ -188,6 +188,9 @@ def _match_path(
     # What the key keeps, with a little for the entry itself.
     size = sum(len(part) for part in (raw, cwd, key[3], key[4]))
     size += sum(len(name) + len(value or "") for name, value in key[1]) + 64
+    if size > _SEEN_LIMIT:
+        # An entry larger than the whole cache is not kept.
+        return found
     if owned.work.retained + size > _SEEN_LIMIT:
         owned.seen.clear()
         owned.work.retained = 0

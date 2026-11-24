@@ -113,3 +113,14 @@ def test_a_long_environment_join_costs_linear_time(tmp_path: Path) -> None:
     for growth, elapsed in zip((4, 16), times[1:], strict=True):
         assert elapsed <= 3 * growth * times[0] + 0.05, (growth, times)
     assert all(hit is not None and hit.target == _TOO_LONG for hit in hits)
+
+
+def test_one_path_larger_than_the_cache_is_not_kept(tmp_path: Path) -> None:
+    """The working directory fits the path budget; with ``HOME`` the entry does not fit."""
+    owned = paths._Owned({}, ())
+    cwd = str(tmp_path) + "/" + "a" * (bounds._SEEN_LIMIT // 2)
+    home = str(tmp_path) + "/" + "h" * (bounds._SEEN_LIMIT // 2)
+    paths._match_path("x", owned, {"HOME": home}, cwd)
+    assert owned.work.path_chars >= 0
+    assert owned.work.retained <= bounds._SEEN_LIMIT
+    assert sum(len(key[0]) + len(key[2]) for key in owned.seen) <= bounds._SEEN_LIMIT
