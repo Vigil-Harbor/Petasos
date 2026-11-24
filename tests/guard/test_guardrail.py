@@ -1541,7 +1541,8 @@ def test_a_quoted_name_starting_with_a_hash(tmp_path: Path) -> None:
     ids=["config-words", "echo-segments", "unknown-segments", "bang", "brace", "env-options"],
 )
 def test_recognition_cost_stays_linear_in_command_length(tmp_path: Path, command: str) -> None:
-    # A quadratic step takes several seconds on these at the length cap.
+    # Every command is now read, so these take about 1 to 2 s on a slow
+    # Windows box; a quadratic step at this length takes minutes.
     start = time.perf_counter()
     _hit(tmp_path, "terminal", {"command": command})
-    assert time.perf_counter() - start < 2.0
+    assert time.perf_counter() - start < 6.0

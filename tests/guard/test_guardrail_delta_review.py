@@ -147,7 +147,7 @@ def test_a_here_document_in_a_shell_script_is_read_as_its_program(
     text = f"{interpreter} <<END\n{body.format(path=path)}\nEND"
     for command in (text, _sh(text), "eval " + shlex.quote(text)):
         hit = _recognize(tmp_path, command)
-        assert hit is not None and hit.target == path, command
+        assert hit is not None and hit.target == os.path.normcase(path), command
 
 
 def test_a_here_document_past_the_depth_limit_is_not_read(tmp_path: Path) -> None:
@@ -210,7 +210,7 @@ def test_a_hermes_alias_keeps_the_operand_check_of_the_word_as_written(
         # leave the bare name alone.
         assert hit is None
     else:
-        assert hit is not None and hit.target == str(tmp_path.resolve() / _NAME)
+        assert hit is not None and hit.target == os.path.normcase(tmp_path.resolve() / _NAME)
     # Hermes's own verbs stay verbs.
     assert _recognize(tmp_path, f"{program} plugins list") is None
 

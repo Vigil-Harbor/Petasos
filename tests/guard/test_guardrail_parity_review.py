@@ -7,6 +7,7 @@ command is a guard input only: nothing is run.
 from __future__ import annotations
 
 import json
+import os
 import shlex
 from typing import TYPE_CHECKING
 
@@ -40,12 +41,15 @@ def _hit(tmp_path: Path, command: str, tool: str = "terminal") -> GuardrailHit |
 
 
 def _config(tmp_path: Path) -> str:
-    return str((tmp_path / "hermes" / "config.yaml").resolve())
+    # Windows reports a path in its case-folded form.
+    return os.path.normcase((tmp_path / "hermes" / "config.yaml").resolve())
 
 
 def test_python_on_the_opening_line_keeps_the_other_interpreter_check(tmp_path: Path) -> None:
     """The Python check removes comments; Ruby's check still reads the body."""
-    body = "#" + str(tmp_path / "hermes" / "config.yaml")
+    # A command text names paths as Git Bash writes them; a native Windows
+    # path in a Ruby comment is not read as one.
+    body = "#" + (tmp_path / "hermes" / "config.yaml").as_posix()
     command = "true; " * 63 + "python --version; ruby <<'EOF'\n" + body + "\nEOF"
     hit = _hit(tmp_path, command)
     assert hit is not None and hit.target == _config(tmp_path)
