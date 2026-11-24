@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ntpath
 import os
+import shlex
 import time
 from types import SimpleNamespace
 from typing import TYPE_CHECKING
@@ -11,7 +12,6 @@ from typing import TYPE_CHECKING
 import pytest
 
 from petasos.guard import guardrail, shell_parse
-from petasos.guard.bounds import _MAX_CHARS
 from petasos.guard.guardrail import recognize
 from petasos.guard.paths import normalize_path_text
 from petasos.guard.shell_parse import _parse
@@ -227,7 +227,6 @@ def test_shell_path_disguises(tmp_path: Path) -> None:
 
 def test_a_different_plugin_and_a_mention_do_not_match(tmp_path: Path) -> None:
     assert _hit(tmp_path, "terminal", {"command": "hermes plugins disable other"}) is None
-    assert _hit(tmp_path, "terminal", {"command": "echo hermes plugins disable petasos"}) is None
     quiet = "HERMES_SAFE_MODE=0 hermes plugins list"
     assert _hit(tmp_path, "terminal", {"command": quiet}) is None
     assert (
@@ -517,7 +516,6 @@ def test_each_enumerated_hermes_command(tmp_path: Path, command: str, kind: str)
         "pip install requests",
         "hermes config set display.theme teal",
         "git commit -m 'docs: hermes gateway restart steps'",
-        "echo 'hermes plugins disable petasos' > /tmp/notes.txt",
         "hermes plugins auto-update",
         "hermes plugins update kanban",
         "hermes plugins install other",
@@ -862,8 +860,59 @@ def test_hermes_global_options_consume_their_values(tmp_path: Path, option: str)
     assert _hit(tmp_path, "terminal", {"command": command}) is not None
     if option not in {"--profile", "-p"}:
         # A value that happens to be a verb does not become the subcommand.
-        read = f"hermes {option} config set command_allowlist x"
+        # (``config`` is not used here: ``config set`` with a guarded key is
+        # a change wherever it stands among the words.)
+        read = f"hermes {option} plugins disable petasos"
         assert _hit(tmp_path, "terminal", {"command": read}) is None
+
+
+@pytest.mark.parametrize(
+    "option",
+    [
+        "-p work",
+        "--profile work",
+        "--profile=work",
+        "-m some-model",
+        "--mod some-model",
+        "--reas high",
+        "-wm some-model",
+        "-c",
+        "-c session",
+        "--continue session",
+        "--cont session",
+        "-c --yolo",
+        "--yolo --tui -w",
+        "-s a -s b",
+        "--",
+    ],
+)
+@pytest.mark.parametrize("program", ["hermes", "h", "$H", "$HERMES_BIN"])
+def test_hermes_global_option_forms_before_the_verb(
+    tmp_path: Path, program: str, option: str
+) -> None:
+    """Hermes's parser reads these as options, so the verb still follows.
+
+    For ``hermes`` itself a profile option is also a change of its own.
+    """
+    command = f"{program} {option} config set command_allowlist x"
+    assert _hit(tmp_path, "terminal", {"command": command}) is not None, command
+
+
+@pytest.mark.parametrize("option", ["-p work", "--profile work", "--profile=work"])
+def test_a_profile_after_the_verb_is_set_aside(tmp_path: Path, option: str) -> None:
+    """Hermes removes the profile option wherever it is before reading the rest."""
+    command = f"h config set {option} command_allowlist x"
+    hit = _hit(tmp_path, "terminal", {"command": command})
+    assert hit is not None and hit.kind == "settings"
+
+
+@pytest.mark.parametrize("option", ["--model", "-m"])
+def test_config_set_after_an_option_value_is_still_a_change(tmp_path: Path, option: str) -> None:
+    # The shell reading takes ``config`` as the option's value. The words are
+    # also read on their own, where ``config set`` with a guarded key is a
+    # change wherever it stands, as in the 0.5.0 guard.
+    command = f"h {option} config set command_allowlist x"
+    assert _hit(tmp_path, "terminal", {"command": command}) is not None
 
 
 @pytest.mark.parametrize(
@@ -879,6 +928,10 @@ def test_hermes_global_options_consume_their_values(tmp_path: Path, option: str)
         "plugins.disabled",
         "plugins.hook_callback_timeout",
         "plugins.auto_apply",
+        "plugins",
+        "plugins.entries",
+        "plugins.review_note",
+        "plugins.entries.petasos_other",
     ],
 )
 @pytest.mark.parametrize("verb", ["set", "unset"])
@@ -894,14 +947,8 @@ def test_unknown_program_only_guards_listed_config_keys(
     [
         "hermes --json config show",
         "python -m hermes_cli.main config get command_allowlist",
-        "python -m other_cli config set command_allowlist x",
-        "python -mother_cli config set command_allowlist x",
         "ai.hermes approvals suggest",
         "git config set core.editor vim",
-        "git config set command_allowlist x",
-        "/usr/bin/git config unset plugins.enabled",
-        "npm config set command_allowlist x",
-        "grep -r 'hermes config set command_allowlist' docs/",
         "h plugins disable petasos",
         "h import x.zip",
         "h setup --reset",
@@ -909,7 +956,7 @@ def test_unknown_program_only_guards_listed_config_keys(
         "h config edit",
         "h config set model x",
         "h config set command_allowlist_backup x",
-        "h config set plugins.entries.petasos_other x",
+        "h config set plugins_backup x",
         "h config set approvals_backup x",
         "h config get command_allowlist",
     ],
@@ -918,6 +965,74 @@ def test_invocation_recognition_leaves_reads_and_unrelated_programs(
     tmp_path: Path, command: str
 ) -> None:
     assert _hit(tmp_path, "terminal", {"command": command}) is None
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "python -m other_cli config set command_allowlist x",
+        "python -mother_cli config set command_allowlist x",
+        "git config set command_allowlist x",
+        "/usr/bin/git config unset plugins.enabled",
+        "npm config set command_allowlist x",
+    ],
+)
+def test_a_guarded_key_after_any_program_is_a_change(tmp_path: Path, command: str) -> None:
+    """``config set|unset`` with a guarded key is a change whatever program runs it.
+
+    As in the 0.5.0 guard: exempting a program by name would let an alias of
+    that name through. This is conservative.
+    """
+    assert _hit(tmp_path, "terminal", {"command": command}) is not None
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "echo 'hermes plugins disable petasos' > /tmp/notes.txt",
+        "grep -r 'hermes config set command_allowlist' docs/",
+        "printf %s 'hermes config set command_allowlist x'",
+        "echo 'then run: $H -p work config set approvals.mode off'",
+        "ssh host 'hermes config unset petasos'",
+        "echo \"sh -c 'hermes config edit'\"",
+        # In quoted text any program word before ``config set`` and a guarded
+        # key counts, as in the 0.5.0 guard: the program is not resolved there.
+        "echo 'git config set command_allowlist x'",
+    ],
+)
+def test_a_configuration_write_inside_quoted_text_is_a_change(
+    tmp_path: Path, command: str
+) -> None:
+    """Quoted text may be run later, so a configuration write in it is a change.
+
+    This is conservative: text kept only as data is reported too.
+    """
+    hit = _hit(tmp_path, "terminal", {"command": command})
+    assert hit is not None and hit.kind in {"settings", "plugin"}, command
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "git commit -m 'docs: hermes gateway restart steps'",
+        "echo 'hermes config get command_allowlist'",
+        "echo 'hermes config set display.theme teal'",
+        "echo 'hermes plugins list'",
+    ],
+)
+def test_quoted_text_without_a_configuration_write_is_not_a_change(
+    tmp_path: Path, command: str
+) -> None:
+    assert _hit(tmp_path, "terminal", {"command": command}) is None
+
+
+def test_quoted_text_nested_within_the_limit_is_read(tmp_path: Path) -> None:
+    # Each level quotes the one inside it, so the text grows quickly.
+    text = "hermes config set command_allowlist x"
+    for _ in range(5):
+        text = "echo " + shlex.quote(text)
+    hit = _hit(tmp_path, "terminal", {"command": text})
+    assert hit is not None and hit.target == "hermes config set command_allowlist"
 
 
 @pytest.mark.parametrize(
@@ -1148,11 +1263,17 @@ def test_plain_enable_as_an_argument_list_is_a_change(tmp_path: Path, argv: obje
     assert _hit(tmp_path, "terminal", {"command": argv}) is not None
 
 
-def test_plain_enable_cut_at_the_length_bound_is_a_change(tmp_path: Path) -> None:
-    plain = "hermes plugins enable petasos"
-    command = " " * (_MAX_CHARS - len(plain)) + plain + "-other"
-    assert len(command) > _MAX_CHARS
-    assert command[:_MAX_CHARS].endswith("hermes plugins enable petasos")
+@pytest.mark.parametrize(
+    "command",
+    [
+        " " * 100_001 + "hermes plugins disable petasos",
+        "echo " + "a" * 100_000 + "; hermes plugins enable petasos",
+        "true; " * 64 + "hermes plugins enable petasos",
+    ],
+    ids=["blanks", "long-word", "many-commands"],
+)
+def test_a_change_after_a_long_prefix_is_read(tmp_path: Path, command: str) -> None:
+    """Every command in the text is read, however long the text is."""
     assert _hit(tmp_path, "terminal", {"command": command}) is not None
 
 
@@ -1284,9 +1405,8 @@ def test_command_rule_fields_keep_their_positions() -> None:
     [
         "hermes config set approvals_backup example",
         "hermes config set command_allowlist_backup x",
-        "hermes config unset plugins.enabled_extra",
-        r"hermes config set 'plugins.entries.petasos\.x' y",
-        r"h config set 'plugins.entries.petasos\.x' y",
+        "hermes config unset plugins_extra",
+        "h config set pluginsx.enabled y",
     ],
 )
 def test_a_config_key_matches_only_at_a_segment_boundary(tmp_path: Path, command: str) -> None:

@@ -33,7 +33,9 @@ happened:
 - Whether the plugin runs: the plugin directory, Hermes's enabled and disabled
   plugin lists, safe mode, the hook timeout, the profile pointer, and the
   commands that change them (`hermes plugins disable|remove|uninstall`,
-  `--safe-mode`, `hermes gateway restart`, `hermes config set` on those keys).
+  `--safe-mode`, `hermes gateway restart`, `hermes config set|unset` of the
+  `plugins` mapping or any key in it, since replacing the mapping replaces
+  those entries).
   Enabling the plugin with exactly `hermes plugins enable petasos`, as the
   tool call's whole command text, is not a change, unless the same command grants or revokes its tool-override
   permission (`--allow-tool-override`, `--no-allow-tool-override`), which
@@ -300,9 +302,38 @@ it got in.
     `cmd /c "..."`), which is read with that shell's rules: `-EncodedCommand`,
     `-File`, and a path or command built at runtime inside the script. See
     `hermes-host-facts.md`, section 19.
-  - Anything past the first 64 commands or the first 100,000 characters of
-    one tool call. The rest is not read, so padding hides a change. The
-    limits bound the time a check takes, which is mostly resolving paths.
+  - Text nested more than three levels deep. One count covers every step
+    into nested text: a script handed to a shell, `eval`, Python,
+    PowerShell or cmd, a command string inside program text
+    (`os.system("...")`), a here-document read as a program,
+    `Invoke-Expression`, and a command started by another (`timeout 5 ...`,
+    `xargs ...`). At the limit a command is still judged by what it names,
+    and a command it starts one level further. A script or here-document
+    body left unread there, or a command that would be started past it, is
+    reported as a change ("command nested too deeply to inspect"). Every
+    command of a tool call is read, however long the text is.
+  - Words a shell does not run as a command are read again only for
+    commands that write Hermes's configuration, and conservatively: such a
+    command anywhere in a quoted argument, or written as plain words after
+    another program, is a change (`printf %s hermes config edit`,
+    `echo hermes plugins disable petasos`,
+    `grep -r 'hermes config set ...'`), and so is `config set` or
+    `config unset` of a guarded key after any program word, `git` and
+    `npm` included, as in the 0.5.0 guard. Only the exact plain
+    `hermes plugins enable petasos` stays exempt.
+  - Work. Each tool call has one budget for the reading of words above and
+    one for working out paths, shared by every nested and quoted reading,
+    so the cost stays linear in the text's length. A text that runs out of
+    either is reported as "command too long to inspect", as the 0.5.0
+    guard did. A path the budget could not pay for is never treated as a
+    plain read, and a tool call of any kind that ran out of budget without
+    finding a change is reported the same way. A working directory that
+    keeps growing (`cd a; cd a; ...`) runs out the path budget. Measured
+    from `/private/tmp` on the development machine, `cd a; ` repeated 993
+    times is read in full and 994 times runs out the budget; either takes
+    about 0.7 s, and a longer chain stops at the same point and costs no
+    more. The review measured the same edge at 994 and 995 commands, in
+    about 0.6 s.
   - Package managers other than `pip`, `pipx` and `uv` (`poetry`, `conda`),
     and an install from a requirements file or from the current directory.
   - A Python path built in a variable and used later
@@ -351,7 +382,7 @@ it got in.
     update every plugin. A word after it that names Petasos, or a flag such
     as `--apply`, still counts. A configuration key matches a guarded key
     only as a whole dotted segment, so `approvals_backup` is not
-    `approvals`.
+    `approvals` and `plugins_backup` is not `plugins`.
 
   Reads that are not on the reader list now ask. That includes `sed` and
   `perl` even without `-i`, `awk`, editors (including a read-only `vim -R`),
@@ -363,7 +394,12 @@ it got in.
   `hermes`, `petasos`, `pip` and `uv` take verbs and names, and their forms
   that change a guardrail are listed as rules. For those four a bare word is
   not read as a path, so `petasos doctor` does not ask in a directory that
-  happens to hold a `petasos` folder.
+  happens to hold a `petasos` folder. A program word the host reads as
+  `hermes` (`ai.hermes.exe`, `ai.hermes`, `hermes.exe` off Windows, a path
+  to one of them, or `python -m hermes_cli`) is read both ways: as Hermes
+  for its rules, and as written for its operands. So
+  `ai.hermes.exe --version config.yaml` asks, as it did before the alias
+  was known.
 
 ## Behaviour change
 

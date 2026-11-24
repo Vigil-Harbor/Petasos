@@ -135,12 +135,18 @@ def test_a_long_repetitive_line_is_worked_out_once_per_distinct_word(
         return find(*args, **kwargs)  # type: ignore[arg-type]
 
     monkeypatch.setattr(paths, "_find_path", counting)
-    assert _recognize(tmp_path, "x powershell -c x bash -c nope " * 344) is None
+    hit = _recognize(tmp_path, "x powershell -c x bash -c nope " * 344)
+    # The started commands nest past the depth limit. The scripts left unread
+    # there are reported rather than allowed.
+    assert hit is not None and hit.target == "command nested too deeply to inspect"
     assert worked < 100
 
 
 def test_a_native_shell_after_a_run_of_ordinary_starters_is_still_read(tmp_path: Path) -> None:
-    """The first pass runs out of depth here, and only the second reaches the PowerShell."""
+    """The first pass runs out of depth here, and the second reaches the PowerShell.
+
+    What the second pass finds is reported rather than the depth limit.
+    """
     command = (
         'a bash -c x b bash -c x c bash -c x d powershell -c "hermes plugins disable petasos"'
     )

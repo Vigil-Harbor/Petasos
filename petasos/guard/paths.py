@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from petasos.guard.bounds import _SEEN_LIMIT, _TOO_LONG, _UNREADABLE, _Work
 from petasos.guard.surface import _KINDS, GuardrailHit, GuardrailSurface
 
 if TYPE_CHECKING:
@@ -41,8 +42,11 @@ class _Owned:
 
     paths: Mapping[str, str]
     roots: tuple[str, ...]
-    # Answers already worked out during one recognition. A long line is
-    # judged from several starting words, and the same words come round again.
+    # One is made for each recognition, so the two fields below are its own:
+    # the work it has left, and the answers it has already worked out. A long
+    # line is judged from several starting words, and the same words come
+    # round again. The cache keeps at most ``_SEEN_LIMIT`` characters.
+    work: _Work = field(default_factory=_Work, compare=False, repr=False)
     seen: dict[_SeenKey, GuardrailHit | None] = field(
         default_factory=dict, compare=False, repr=False
     )
@@ -154,6 +158,9 @@ def _match_path(
     ``above`` also matches a directory inside a root that holds a protected
     path, and a wildcard there that covers one, against the working
     directory only.
+
+    Working out a new answer spends the recognition's path budget. Once it
+    is gone the answer is that the command is too long to inspect.
     """
     # Everything the answer is worked out from, so a changed variable is a new
     # question. The word stays as written: braces and quotes are read before its
@@ -170,9 +177,30 @@ def _match_path(
         above,
         hedge,
     )
-    if key not in owned.seen:
-        owned.seen[key] = _find_path(raw, owned, env, cwd, above=above, hedge=hedge)
-    return owned.seen[key]
+    if key in owned.seen:
+        return owned.seen[key]
+    # The work grows with the word and the directory it is read against, so
+    # a working directory that keeps growing (``cd a; cd a; ...``) runs the
+    # budget out instead of costing quadratic time.
+    if not owned.work.spend_path(len(raw) + len(cwd) + 16):
+        return GuardrailHit("settings", _TOO_LONG)
+    try:
+        found: GuardrailHit | None = _find_path(raw, owned, env, cwd, above=above, hedge=hedge)
+    except _Unreadable:
+        found = GuardrailHit("settings", _UNREADABLE)
+    # What the key keeps, with a little for the entry itself.
+    size = sum(len(part) for part in (raw, cwd, key[3], key[4]))
+    size += sum(len(name) + len(value or "") for name, value in key[1]) + 64
+    if owned.work.retained + size > _SEEN_LIMIT:
+        owned.seen.clear()
+        owned.work.retained = 0
+    if size > _SEEN_LIMIT:
+        # An entry larger than the whole cache is not kept, but it still
+        # empties the cache, as any entry that does not fit does.
+        return found
+    owned.seen[key] = found
+    owned.work.retained += size
+    return found
 
 
 def _find_path(
@@ -279,6 +307,7 @@ def _expand_path(raw: str, env: Mapping[str, str], cwd: str, *, hedge: bool = Tr
     against ``HERMES_HOME`` and ``HOME`` as well. On Windows each of those has
     two readings, the native one and Git Bash's, so the working directory
     alone can give two paths. The last of them is the shell's own reading.
+    Raises ``_Unreadable`` when the system cannot look up a ``~name`` account.
     """
     text = raw.strip()
     if len(text) >= 2 and text[0] == text[-1] and text[0] in {"'", '"'}:
@@ -291,7 +320,7 @@ def _expand_path(raw: str, env: Mapping[str, str], cwd: str, *, hedge: bool = Tr
         else:
             text = os.path.expanduser(text)
     elif text.startswith("~"):
-        text = os.path.expanduser(text)
+        text = _expand_account(text)
     if os.name == "nt":
         # Before the absolute test: Windows reads "/c/x" as a path on the current drive.
         text = text.replace("\\", "/")
@@ -311,6 +340,23 @@ def _expand_path(raw: str, env: Mapping[str, str], cwd: str, *, hedge: bool = Tr
             # readings are candidates.
             bases.extend(_bash_join(root, text) for root in roots)
     return [normalize_path_text(item) for item in bases]
+
+
+class _Unreadable(Exception):
+    """The system refused to work out the path a word names."""
+
+
+def _expand_account(text: str) -> str:
+    """``~name/x`` under that account's home; an unknown account leaves it as written.
+
+    The account lookup itself fails on a name with a NUL or a character the
+    file system encoding cannot hold. That raises ``_Unreadable``, so the
+    caller reports the word rather than reading it as some other path.
+    """
+    try:
+        return os.path.expanduser(text)
+    except (ValueError, OSError) as error:  # UnicodeEncodeError is a ValueError.
+        raise _Unreadable(text) from error
 
 
 def _bash_join(root: str, text: str) -> str:

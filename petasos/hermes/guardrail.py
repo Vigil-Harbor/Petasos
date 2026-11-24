@@ -20,10 +20,21 @@ _PLUGIN_TAILS = (
     "plugins.hook_callback_timeout",
     "plugins.auto_apply",
 )
+# Hermes reads which plugins it loads, and with what settings, from the
+# ``plugins`` mapping. Setting or removing ``plugins`` or any key inside it
+# can replace the entries above, so the whole mapping is guarded, after the
+# entries above so a match keeps their labels. As in the 0.5.0 guard, a
+# program word that cannot be resolved is read the same way: such a word may
+# be Hermes, and ``$H config set plugins '{}'`` would replace every entry.
+_PLUGINS_KEY = "plugins"
 # ``approvals`` holds Hermes's approval settings (mode, timeout, deny list).
-_SETTINGS_TAILS = ("plugins.entries.petasos", "command_allowlist", "approvals")
-# Hermes's top-level options whose next word is a value, rather than a verb
-# (tools/approval_config_set.py). Other option words stand alone.
+# ``petasos`` is the plugin's own top-level section. Petasos reads its
+# settings elsewhere, but a write there is still treated as a change.
+_SETTINGS_TAILS = ("plugins.entries.petasos", "command_allowlist", "approvals", "petasos")
+# Hermes's top-level options (hermes_cli/_parser.py, ``_add_top_level_flags``),
+# matched for ``hermes`` and for a program word that cannot be resolved.
+# These take the next word as their value, rather than a verb. ``--config``
+# is not one of Hermes's; Hermes refuses it, so the command does not run.
 _GLOBAL_VALUES = frozenset(
     {
         "--profile",
@@ -46,6 +57,34 @@ _GLOBAL_VALUES = frozenset(
         "--cpu-profile",
     }
 )
+# ``--continue`` takes the next word unless it starts with ``-``.
+_GLOBAL_OPTIONAL_VALUES = frozenset({"--continue", "-c"})
+_GLOBAL_FLAGS = frozenset(
+    {
+        "--help",
+        "-h",
+        "--version",
+        "-V",
+        "--no-restore-cwd",
+        "--worktree",
+        "-w",
+        "--accept-hooks",
+        "--yolo",
+        "--pass-session-id",
+        "--checkpoints",
+        "--ignore-user-config",
+        "--ignore-rules",
+        "--safe-mode",
+        "--tui",
+        "--native",
+        "--tui-native",
+        "--cli",
+        "--dev",
+    }
+)
+# Hermes removes ``-p``/``--profile`` and its value wherever it appears before
+# ``--``, before argparse runs (hermes_cli/main.py, ``_scan_profile_flag``).
+_PROFILE_OPTIONS = frozenset({"--profile", "-p"})
 # ``hermes update`` restarts the processes that run agents unless the flag
 # makes the invocation read-only. See hermes-host-facts.md.
 _UPDATE_READS = ("--check", "--plan", "--list-venv-holders", "--install-id")
@@ -264,6 +303,16 @@ def hermes_surface(paths: Iterable[str], roots: Iterable[str] = ()) -> Guardrail
                     help_clears=False,
                 )
             )
+        commands.append(
+            CommandRule(
+                "plugin",
+                ("hermes", "config", verb),
+                f"hermes config {verb} {_PLUGINS_KEY}",
+                tail=_PLUGINS_KEY,
+                unknown_program=True,
+                help_clears=False,
+            )
+        )
     return GuardrailSurface(
         paths={kind: frozenset(values) for kind, values in labelled.items()},
         roots=frozenset(str(root) for root in roots),
@@ -271,9 +320,12 @@ def hermes_surface(paths: Iterable[str], roots: Iterable[str] = ()) -> Guardrail
         programs=(
             CommandProgram(
                 "hermes",
-                aliases=("ai.hermes", "hermes.exe"),
+                aliases=("ai.hermes", "hermes.exe", "ai.hermes.exe"),
                 modules=("hermes_cli", "hermes_cli.main"),
                 value_options=_GLOBAL_VALUES,
+                optional_value_options=_GLOBAL_OPTIONAL_VALUES,
+                flag_options=_GLOBAL_FLAGS,
+                stripped_options=_PROFILE_OPTIONS,
             ),
         ),
         flags=(

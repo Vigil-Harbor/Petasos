@@ -92,6 +92,48 @@ deleted.
 
 ## Changed
 
+- The guardrail recogniser flags everything the 0.5.0 guard flags. It reads
+  every command of a tool call rather than the first 64 commands and
+  100,000 characters, and reports a script nested past its depth limit
+  rather than allowing it unread. Hermes's global options before the verb
+  (`-p work`, `--profile=work`, `-c session`, an abbreviated or clustered
+  option) no longer hide `config set|unset` after a program word it cannot
+  resolve (`$HERMES_BIN -p work config unset command_allowlist`). Writes
+  to the top-level `petasos` key are a change. A Hermes configuration
+  write inside quoted text is a change, and so is a text too long for that
+  reading to inspect; this is conservative, so `grep -r 'hermes config set
+  command_allowlist' docs/` now asks.
+
+- The guardrail recogniser closes the remaining differences from the 0.5.0
+  guard. `hermes config set|unset` of the `plugins` mapping or any key in
+  it is a change (`hermes config set plugins.review_note demo`), for a
+  program word it cannot resolve as well, and `ai.hermes.exe` is read as
+  Hermes. A Hermes configuration write written as plain words after
+  another program is a change, as in quoted text, so `printf %s hermes
+  config edit`, `echo hermes plugins disable petasos` and
+  `git config set command_allowlist x` now ask. A here-document whose
+  opening line also runs Python is still read for the other interpreter
+  it feeds. One depth count runs through every kind of nested text,
+  Python and its command strings included, and a script left unread at
+  the limit is reported as too deep to inspect. One work budget covers
+  each tool call, and a working directory that keeps growing ends in
+  "command too long to inspect". A tool call of any kind that runs out of
+  budget without finding a change is reported that way too, and a path
+  the budget could not pay for is never taken for a plain read in program
+  text. A here-document in a script handed to `sh -c` or `eval` is read
+  as the program it feeds (`sh -c "python <<END ..."`), and one that would
+  be read past the depth limit is reported as too deep to inspect. A
+  Hermes alias or module form (`ai.hermes.exe`, `ai.hermes`, `hermes.exe`
+  off Windows, `python -m hermes_cli`) keeps the operand check of the word
+  as written, so `ai.hermes.exe --version config.yaml` asks again. A
+  `~name` path whose account the system cannot look up (a NUL or an
+  unencodable character in the name) is reported as "path cannot be
+  inspected" instead of raising. Long PowerShell pipelines, many protected
+  paths in program text, long environment-variable path joins, and long
+  `cd` chains no longer cost quadratic time, and an `os.system` string or
+  `subprocess` argument list with no closing quote or bracket no longer
+  costs exponential time.
+
 - The Petasos tab was reworked in a designer and reviewer loop. Overview keeps
   the protection state apart from the job and strictness choices and offers two
   first-run steps on a profile where neither has been chosen. Activity opens its

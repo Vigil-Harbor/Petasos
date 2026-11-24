@@ -34,10 +34,20 @@ def test_mentions_and_reads_are_not_changes() -> None:
         "hermes plugins list",
         "hermes config get plugins.enabled",
         "petasos doctor",
-        "echo hermes plugins disable petasos",
-        "echo 'hermes plugins disable petasos' > /tmp/notes.txt",
     ):
         assert _command(command) is None, command
+
+
+def test_a_configuration_write_as_separate_words_is_a_change() -> None:
+    """The words may be run later, as in quoted text. Conservative, as in 0.5.0."""
+    hit = _command("echo hermes plugins disable petasos")
+    assert hit is not None and hit.kind == "plugin"
+
+
+def test_a_configuration_write_in_quoted_text_is_a_change() -> None:
+    """Quoted text may be run later. Text kept only as a note asks too."""
+    hit = _command("echo 'hermes plugins disable petasos' > /tmp/notes.txt")
+    assert hit is not None and hit.kind == "plugin"
 
 
 def test_a_backslash_and_joined_quotes_still_name_the_command() -> None:
