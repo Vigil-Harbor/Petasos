@@ -207,7 +207,11 @@ def _expression_uses(
     env: Mapping[str, str],
     cwd: str,
 ) -> list[tuple[int, int, GuardrailHit]]:
-    """Path expressions (``expanduser``, ``Path.home``, env joins) with their spans."""
+    """Path expressions (``expanduser``, ``Path.home``, env joins) with their spans.
+
+    The reading ends at the first path the budget cannot pay for, reported
+    as too long to inspect.
+    """
     found: list[tuple[int, int, GuardrailHit]] = []
     for match in _EXPANDUSER.finditer(code):
         hit = _match_path(match.group(2), owned, env, cwd)
@@ -234,12 +238,18 @@ def _expression_uses(
             if piece is None:
                 break
             part = piece.group(2)
-            if "+" in piece.group(0):
-                built += part
-            else:
-                built = str(Path(built) / part)
-            hit = _match_path(built, owned, env, cwd)
             cursor = piece.end()
+            # Building the next prefix costs its length, charged first, so a
+            # long chain runs the budget out instead of costing quadratic time.
+            # The first exhaustion ends the reading.
+            if not owned.work.spend_path(len(built) + len(part) + 1):
+                found.append((match.start(), cursor, GuardrailHit("settings", _TOO_LONG)))
+                return found
+            built = built + part if "+" in piece.group(0) else str(Path(built) / part)
+            hit = _match_path(built, owned, env, cwd)
+            if hit is not None and hit.target == _TOO_LONG:
+                found.append((match.start(), cursor, hit))
+                return found
             if hit is not None:
                 last = (cursor, hit)
         if last is not None:

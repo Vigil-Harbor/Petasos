@@ -7,6 +7,7 @@ created, read or run. Every command is a guard input only.
 
 from __future__ import annotations
 
+import time
 from typing import TYPE_CHECKING
 
 import pytest
@@ -89,3 +90,26 @@ def test_a_spent_budget_with_no_change_found_is_too_long_for_every_tool(
         monkeypatch.setattr(guardrail, name, spend)
     hit = recognize(tool, {key: text}, protected=(), package=(), environ={}, cwd=str(tmp_path))
     assert hit is not None and hit.target == _TOO_LONG
+
+
+def test_a_long_environment_join_costs_linear_time(tmp_path: Path) -> None:
+    """Each piece lengthens the path; the budget ends the chain at its first exhaustion."""
+
+    def make(count: int) -> str:
+        return "p = os.getenv('BASE')" + " + 'a'" * count + "\n"
+
+    environ = {"BASE": str(tmp_path.resolve())}
+    times: list[float] = []
+    hits: list[GuardrailHit | None] = []
+    for growth in (1, 4, 16):
+        code = make(8000 * growth)
+        best = float("inf")
+        for _ in range(3):
+            started = time.perf_counter()
+            hit = _recognize(tmp_path, code, "execute_code", environ=environ)
+            best = min(best, time.perf_counter() - started)
+        times.append(best)
+        hits.append(hit)
+    for growth, elapsed in zip((4, 16), times[1:], strict=True):
+        assert elapsed <= 3 * growth * times[0] + 0.05, (growth, times)
+    assert all(hit is not None and hit.target == _TOO_LONG for hit in hits)
