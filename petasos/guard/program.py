@@ -10,11 +10,10 @@ from typing import TYPE_CHECKING
 from petasos.guard.bounds import _TOO_LONG
 from petasos.guard.paths import _match_path, _Owned
 from petasos.guard.shell_parse import _program
+from petasos.guard.surface import GuardrailHit
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
-
-    from petasos.guard.surface import GuardrailHit
 
 
 _CODE_TOOLS = frozenset({"execute_code", "python"})
@@ -127,6 +126,9 @@ def _code_names_path(
     built in a variable and used later is still not visible.
     """
     occurrences = _protected_uses(code, owned, env, cwd)
+    if owned.work.spent:
+        # A use whose path was not worked out may be anything; it is never a read.
+        return GuardrailHit("settings", _TOO_LONG)
     for start, end, hit in occurrences:
         if hit.target == _TOO_LONG or not _is_plain_code_read(code, start, end):
             return hit
@@ -172,7 +174,8 @@ def _protected_uses(
 ) -> list[tuple[int, int, GuardrailHit]]:
     """Each protected path use as ``(start, end, hit)``, in source order.
 
-    A use inside another is dropped. Quoted strings are found in order and do
+    A use inside another is dropped, but never a text too long to inspect,
+    whose path was not worked out. Quoted strings are found in order and do
     not overlap, so whether a bare path sits inside one is decided by walking
     both in step.
     """
@@ -270,7 +273,8 @@ def _outer_uses(
     The uses are sorted by start, the longest first among those that start
     together, and then read once. A use is inside another when one that
     started earlier reaches at least as far, or one that starts with it
-    reaches further. Equal spans are all kept.
+    reaches further. Equal spans are all kept, and so is every use whose
+    path was not worked out, wherever it stands.
     """
     ordered = sorted(found, key=lambda use: (use[0], -use[1]))
     kept: list[tuple[int, int, GuardrailHit]] = []
@@ -282,7 +286,7 @@ def _outer_uses(
         if start != group_start:
             reach = max(reach, group_end)
             group_start, group_end = start, end
-        if reach >= end or group_end > end:
+        if (reach >= end or group_end > end) and hit.target != _TOO_LONG:
             continue
         kept.append((start, end, hit))
     return kept

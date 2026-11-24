@@ -33,6 +33,7 @@ import threading
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from petasos.guard.bounds import _TOO_LONG
 from petasos.guard.paths import _match_path, _Owned, _owned
 from petasos.guard.program import _is_code_tool
 from petasos.guard.shell import _command_change, _judge_code
@@ -148,7 +149,9 @@ def recognize(
 
     ``protected`` is the host's path set, used when ``surface`` does not label
     a path. A labelled path keeps its label. ``package`` defaults to the
-    installed package directory.
+    installed package directory. A call that finds no change but ran out of
+    its work budget on the way is reported as too long to inspect, whatever
+    the tool.
     """
     if _program(tool) in _READ_TOOLS or tool in _READ_TOOLS:
         return None
@@ -156,6 +159,21 @@ def recognize(
     env = os.environ if environ is None else environ
     work = os.getcwd() if cwd is None else cwd
     owned = _owned(protected, host, package if package is not None else package_roots())
+    hit = _first_change(tool, params, owned, host, env, work)
+    if hit is None and owned.work.spent:
+        # Whatever ran out of budget left text unread; that is never an allow.
+        return GuardrailHit("settings", _TOO_LONG)
+    return hit
+
+
+def _first_change(
+    tool: str,
+    params: Mapping[str, object],
+    owned: _Owned,
+    host: GuardrailSurface,
+    env: Mapping[str, str],
+    work: str,
+) -> GuardrailHit | None:
     if _is_code_tool(tool):
         for text, _written in _command_texts(params):
             hit = _judge_code(text, owned, host, env, work)
