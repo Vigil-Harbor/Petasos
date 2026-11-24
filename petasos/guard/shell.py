@@ -21,10 +21,9 @@ from petasos.guard.program import _code_names_path, _embedded, _strip_python_com
 from petasos.guard.shell_parse import (
     _WRAPPERS,
     _assignment,
-    _parse,
     _program,
-    _readings,
     _Simple,
+    _spelled,
     _strip_wrappers,
 )
 from petasos.guard.surface import (
@@ -67,31 +66,24 @@ def _command_change(
     cwd: str,
     *,
     plain: tuple[str, ...] | None = None,
-    drive_paths: bool = False,
 ) -> GuardrailHit | None:
     """The first guardrail change ``text`` makes when a shell runs it.
 
     ``plain`` is the whole tool call's command text read as one plain
     command (see ``recognize``), or ``None``. Only a rule's ``except_exact``
     consults it.
-
-    ``drive_paths`` adds the Windows-path reading of drive-letter words (see
-    ``_readings``). Only the tool call's own text takes it: a script or
-    program text inside it is read once, as the shell reads it, so the work
-    stays within twice one reading.
     """
     if len(text) > _MAX_CHARS:
         text = text[:_MAX_CHARS]
     rules = library_rules() + surface.commands
-    for commands in _readings(text) if drive_paths else (_parse(text),):
-        hit = _each_command(commands, owned, surface, rules, env, cwd, depth=0, plain=plain)
-        if hit is not None:
-            return hit
-    return _heredoc_hit(text, owned, surface, env, cwd, drive_paths=drive_paths)
+    hit = _each_command(_spelled(text), owned, surface, rules, env, cwd, depth=0, plain=plain)
+    if hit is not None:
+        return hit
+    return _heredoc_hit(text, owned, surface, env, cwd)
 
 
 def _each_command(
-    commands: list[_Simple],
+    commands: list[tuple[_Simple, _Simple | None]],
     owned: _Owned,
     surface: GuardrailSurface,
     rules: tuple[CommandRule, ...],
@@ -101,9 +93,25 @@ def _each_command(
     depth: int,
     plain: tuple[str, ...] | None = None,
 ) -> GuardrailHit | None:
-    """Judge commands in order. A ``cd`` moves the directory the later ones run in."""
-    for command in commands[:_MAX_COMMANDS]:
+    """Judge commands in order. A ``cd`` moves the directory the later ones run in.
+
+    A command's Windows-path spelling (see ``_spelled``) is checked for what
+    it names, not for what it runs, so it adds no nested work.
+    """
+    for command, spelled in commands[:_MAX_COMMANDS]:
         hit = _one_command(command, owned, surface, rules, env, cwd, depth=depth, plain=plain)
+        if hit is None and spelled is not None:
+            hit = _one_command(
+                spelled,
+                owned,
+                surface,
+                rules,
+                env,
+                cwd,
+                depth=depth,
+                plain=plain,
+                checks_only=True,
+            )
         if hit is not None:
             return hit
         cwd = _after_cd(command, env, cwd)
@@ -135,32 +143,37 @@ def _heredoc_hit(
     surface: GuardrailSurface,
     env: Mapping[str, str],
     cwd: str,
-    *,
-    drive_paths: bool = False,
 ) -> GuardrailHit | None:
     """Program text handed to an interpreter as a here-document.
 
     The body's lines were already judged as shell commands, which is what a
     shell reading the document would run. This adds the reading for Python and
     the other interpreters, where a line is not a command.
+
+    The opening line's shell reading and its Windows-path spelling each choose
+    a check, so a spelling that adds Python cannot take the place of the
+    other's interpreter check. Each check runs at most once.
     """
     for line, body in _heredocs(text):
-        # Each reading of the opening line is judged on its own, so one that
-        # adds Python cannot take the place of another's interpreter check.
-        for commands in _readings(line) if drive_paths else (_parse(line),):
+        pairs = _spelled(line)
+        checks: set[str] = set()
+        for commands in ([s for s, _ in pairs], [d or s for s, d in pairs]):
             programs = set()
             for command in commands:
                 argv, _assignments = _strip_wrappers(command.argv)
                 if argv:
                     programs.add(_program(argv[0]))
             if "python" in programs:
-                hit = _judge_code(body, owned, surface, env, cwd)
+                checks.add("python")
             elif programs & _INTERPRETERS:
-                hit = _code_names_path(body, owned, env, cwd)
-            else:
-                continue
-            if hit is not None:
-                return hit
+                checks.add("names")
+        hit = None
+        if "python" in checks:
+            hit = _judge_code(body, owned, surface, env, cwd)
+        if hit is None and "names" in checks:
+            hit = _code_names_path(body, owned, env, cwd)
+        if hit is not None:
+            return hit
     return None
 
 
@@ -197,7 +210,14 @@ def _one_command(
     depth: int,
     known_program: bool = False,
     plain: tuple[str, ...] | None = None,
+    checks_only: bool = False,
 ) -> GuardrailHit | None:
+    """The first guardrail change ``command`` makes.
+
+    ``checks_only`` judges what the command names (its program, rules, flags,
+    paths and redirects, and a command it starts) without entering a script
+    or program text it carries.
+    """
     prepared, assignments = _strip_wrappers(command.argv)
     prepared = _invocation(prepared, surface)
     program = _program(prepared[0]) if prepared else ""
@@ -244,6 +264,11 @@ def _one_command(
     hit = _mutation(acted, command.redirects, owned, env, cwd)
     if hit is not None or depth >= 3:
         return hit
+    if checks_only:
+        if program in _TEXT_ONLY or program in _READERS:
+            return None
+        # At the depth limit, the started command is judged without its scripts.
+        return _started(prepared, owned, surface, rules, env, cwd, 3)
     found: GuardrailHit | None = None
     if program == "python":
         script = _c_argument(prepared)
@@ -397,7 +422,7 @@ def _nested(
     cwd: str,
     depth: int,
 ) -> GuardrailHit | None:
-    return _each_command(_parse(script), owned, surface, rules, env, cwd, depth=depth + 1)
+    return _each_command(_spelled(script), owned, surface, rules, env, cwd, depth=depth + 1)
 
 
 def _native(

@@ -105,27 +105,31 @@ def _program(token: str) -> str:
     return base
 
 
-def _readings(text: str) -> tuple[list[_Simple], ...]:
-    """The shell's reading of ``text``, then its Windows-path reading when that differs.
+def _spelled(text: str) -> list[tuple[_Simple, _Simple | None]]:
+    """Each command as the shell reads it, with its Windows-path spelling when that differs.
 
     A shell drops an unquoted backslash, so ``C:\\Tools\\hermes.exe`` names
     ``C:Toolshermes.exe`` and ``C:/x/conf\\ig.yaml`` names ``C:/x/config.yaml``.
-    The second reading keeps the separators of a drive-letter word, for a
-    pasted Windows path. Callers judge both and keep any match: the second
-    reading may add a match, never remove one.
+    The spelling keeps the separators of a drive-letter word, for a native
+    path that reaches Windows without a shell, as program text's argument
+    lists do. Callers check it as well and keep any match: it may add a
+    match, never remove one. A kept backslash is never a separator, so both
+    parses hold the same commands in the same order.
     """
     shell = _parse(text)
     if "\\" not in text or ":" not in text:
-        return (shell,)
-    windows = _parse(text, drive_paths=True)
-    return (shell,) if windows == shell else (shell, windows)
+        return [(command, None) for command in shell]
+    spelled = _parse(text, drive_paths=True)
+    if len(spelled) != len(shell):
+        return [(command, None) for command in shell]
+    return [(s, None if d == s else d) for s, d in zip(shell, spelled, strict=True)]
 
 
 def _parse(text: str, *, drive_paths: bool = False) -> list[_Simple]:
     """Shell words, redirects and assignments, as a POSIX shell reads them.
 
     ``drive_paths`` keeps a backslash before a letter or digit in a word that
-    starts with a drive letter. Use it only through ``_readings``.
+    starts with a drive letter. Use it only through ``_spelled``.
     """
     commands: list[_Simple] = []
     words: list[str] = []

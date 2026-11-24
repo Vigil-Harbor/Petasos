@@ -15,7 +15,7 @@ from petasos.guard import shell
 from petasos.guard.guardrail import recognize
 from petasos.guard.paths import _native_drive, _owned
 from petasos.guard.shell import _heredoc_hit
-from petasos.guard.shell_parse import _parse, _program, _readings, _Simple
+from petasos.guard.shell_parse import _parse, _program, _Simple, _spelled
 from petasos.hermes.guardrail import hermes_surface
 
 if TYPE_CHECKING:
@@ -102,19 +102,20 @@ def test_a_drive_letter_word_is_read_as_the_shell_reads_it(
 ) -> None:
     """The shell drops an unquoted backslash in a drive-letter word too, on every host.
 
-    The Windows-path reading is a second reading that keeps the backslash.
-    It can only add a match, so the shell's reading always comes first.
+    The Windows-path spelling keeps the backslash. It is an extra check that
+    can only add a match; the shell's reading is the command.
     """
-    readings = _readings(command)
-    assert (readings[0][0].argv, readings[0][0].redirects) == (argv, redirects)
-    assert len(readings) == 2
-    kept = (*readings[1][0].argv, *readings[1][0].redirects)
-    assert any(BACKSLASH in word for word in kept)
+    [(shell_command, spelled)] = _spelled(command)
+    assert (shell_command.argv, shell_command.redirects) == (argv, redirects)
+    assert spelled is not None
+    assert any(BACKSLASH in word for word in (*spelled.argv, *spelled.redirects))
 
 
-def test_a_command_without_a_drive_letter_word_has_one_reading() -> None:
-    assert len(_readings("rm hermes/conf\\ig.yaml")) == 1
-    assert len(_readings("rm C:/x/hermes/config.yaml")) == 1
+def test_only_a_command_with_a_drive_letter_word_has_a_spelling() -> None:
+    assert _spelled("rm hermes/conf\\ig.yaml")[0][1] is None
+    assert _spelled("rm C:/x/hermes/config.yaml")[0][1] is None
+    spellings = [d is None for _, d in _spelled("rm C:/x/conf\\ig.yaml; echo ok")]
+    assert spellings == [False, True]
 
 
 @windows_only
@@ -132,21 +133,17 @@ def test_a_reading_that_adds_python_keeps_the_other_interpreter_check(tmp_path: 
     surface = hermes_surface([str(config)], roots=(str(home),))
     owned = _owned((str(config),), surface, ())
     text = f"perl -e 1; C:\\Tools\\python.exe <<EOF\n# '{config.as_posix()}'\nEOF"
-    hit = _heredoc_hit(
-        text, owned, surface, {"HOME": str(tmp_path)}, str(tmp_path), drive_paths=True
-    )
+    hit = _heredoc_hit(text, owned, surface, {"HOME": str(tmp_path)}, str(tmp_path))
     assert hit is not None
     assert hit.kind == "settings"
 
 
-def test_only_the_tool_calls_own_text_takes_the_second_reading(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Program text inside the command is read once, so readings do not multiply.
+def test_a_spelling_adds_no_nested_work(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A spelling is checked for what it names, not for what it runs.
 
-    Both levels hold a drive-letter word, and each reading of the outer text
-    ends in a different directory. With a second reading at every level the
-    inner ``echo ok`` would be judged four times.
+    Both levels hold a drive-letter word. With a second reading of each whole
+    text, each ending in its own directory, the inner ``echo ok`` was judged
+    four times.
     """
     judged: list[tuple[str, ...]] = []
     original = shell._one_command
@@ -158,7 +155,26 @@ def test_only_the_tool_calls_own_text_takes_the_second_reading(
     monkeypatch.setattr(shell, "_one_command", counting)
     command = "cd C:a\\b; python -c \"import os; os.system('cd C:c\\\\d; echo ok')\""
     assert _recognize(tmp_path, "terminal", {"command": command}) is None
-    assert judged.count(("echo", "ok")) == 2
+    assert judged.count(("echo", "ok")) == 1
+
+
+@pytest.mark.parametrize(
+    "code",
+    [
+        "import subprocess; "
+        'subprocess.run(["C:\\Tools\\hermes.exe", "plugins", "disable", "petasos"])',
+        'import os; os.system("C:\\Tools\\hermes.exe plugins disable petasos")',
+    ],
+)
+def test_program_text_keeps_a_native_program_path(tmp_path: Path, code: str) -> None:
+    """Python hands an argument list, or cmd a line, to Windows without Git Bash.
+
+    ``\\T`` and ``\\h`` are not Python escapes, so the program text holds
+    single backslashes.
+    """
+    hit = _recognize(tmp_path, "execute_code", {"code": code})
+    assert hit is not None
+    assert hit.kind == "plugin"
 
 
 @pytest.mark.parametrize(

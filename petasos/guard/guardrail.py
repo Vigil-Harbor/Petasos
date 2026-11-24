@@ -170,7 +170,7 @@ def recognize(
     windows = os.name == "nt"
     for text, written in _command_texts(params):
         plain = _plain_command(text, windows=windows) if written else None
-        hit = _command_change(text, owned, host, env, work, plain=plain, drive_paths=True)
+        hit = _command_change(text, owned, host, env, work, plain=plain)
         if hit is not None:
             return hit
     return None
