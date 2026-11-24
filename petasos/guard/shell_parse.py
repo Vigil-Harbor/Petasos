@@ -1,13 +1,10 @@
-"""Read bounded shell words, redirects, and assignments."""
+"""Read shell words, redirects, and assignments."""
 
 from __future__ import annotations
 
 import os
 import re
 from dataclasses import dataclass
-
-from petasos.guard.bounds import _MAX_COMMANDS
-from petasos.guard.paths import _expand_vars
 
 # Programs and shell keywords that run the command written after them.
 _WRAPPERS = frozenset(
@@ -93,7 +90,9 @@ def _assignment(word: str) -> tuple[str | None, str | None, bool]:
 
 
 def _program(token: str) -> str:
-    base = os.path.basename(_expand_vars(token, {})).casefold()
+    # A word with no separator is its own base name on every system.
+    plain = "/" not in token and "\\" not in token and ":" not in token
+    base = (token if plain else os.path.basename(token)).casefold()
     # Windows runs "hermes.exe" and "hermes" as the same program. Elsewhere
     # the suffix is part of the name of some other program.
     if os.name == "nt" and base.endswith(_EXECUTABLE_SUFFIXES):
@@ -162,7 +161,7 @@ def _parse(text: str, *, drive_paths: bool = False) -> list[_Simple]:
         redirects.clear()
         redirect = False
 
-    while index < length and len(commands) < _MAX_COMMANDS:
+    while index < length:
         char = text[index]
         if quote:
             if char == quote:

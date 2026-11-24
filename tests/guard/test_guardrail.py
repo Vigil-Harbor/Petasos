@@ -11,7 +11,6 @@ from typing import TYPE_CHECKING
 import pytest
 
 from petasos.guard import guardrail, shell_parse
-from petasos.guard.bounds import _MAX_CHARS
 from petasos.guard.guardrail import recognize
 from petasos.guard.paths import normalize_path_text
 from petasos.guard.shell_parse import _parse
@@ -1148,11 +1147,17 @@ def test_plain_enable_as_an_argument_list_is_a_change(tmp_path: Path, argv: obje
     assert _hit(tmp_path, "terminal", {"command": argv}) is not None
 
 
-def test_plain_enable_cut_at_the_length_bound_is_a_change(tmp_path: Path) -> None:
-    plain = "hermes plugins enable petasos"
-    command = " " * (_MAX_CHARS - len(plain)) + plain + "-other"
-    assert len(command) > _MAX_CHARS
-    assert command[:_MAX_CHARS].endswith("hermes plugins enable petasos")
+@pytest.mark.parametrize(
+    "command",
+    [
+        " " * 100_001 + "hermes plugins disable petasos",
+        "echo " + "a" * 100_000 + "; hermes plugins enable petasos",
+        "true; " * 64 + "hermes plugins enable petasos",
+    ],
+    ids=["blanks", "long-word", "many-commands"],
+)
+def test_a_change_after_a_long_prefix_is_read(tmp_path: Path, command: str) -> None:
+    """Every command in the text is read, however long the text is."""
     assert _hit(tmp_path, "terminal", {"command": command}) is not None
 
 

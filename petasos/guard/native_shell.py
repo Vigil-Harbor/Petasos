@@ -12,7 +12,6 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING
 
-from petasos.guard.bounds import _MAX_COMMANDS
 from petasos.guard.mutations import _PS_READS
 from petasos.guard.shell_parse import _program, _Simple
 
@@ -191,7 +190,6 @@ def _native_parse(text: str, shell: str, env: Mapping[str, str]) -> list[_Pipeli
     started = False
     redirect = False
     plain = True
-    count = 0
     index = 0
     length = len(text)
 
@@ -213,11 +211,10 @@ def _native_parse(text: str, shell: str, env: Mapping[str, str]) -> list[_Pipeli
         words.extend(_ps_home(piece, env) if ps else piece for piece in pieces if piece)
 
     def finish_command(*, piped: bool) -> None:
-        nonlocal plain, redirect, count
+        nonlocal plain, redirect
         finish_word()
         if words or redirects:
             pipelines[-1].append((_Simple(tuple(words), tuple(redirects), ()), plain))
-            count += 1
         words.clear()
         redirects.clear()
         redirect = False
@@ -225,7 +222,7 @@ def _native_parse(text: str, shell: str, env: Mapping[str, str]) -> list[_Pipeli
         if not piped and pipelines[-1]:
             pipelines.append([])
 
-    while index < length and count < _MAX_COMMANDS:
+    while index < length:
         char = text[index]
         nxt = text[index + 1 : index + 2]
         if quote == "'":

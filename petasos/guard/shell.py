@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from petasos.guard.bounds import _MAX_CHARS, _MAX_COMMANDS
+from petasos.guard.bounds import _MAX_DEPTH
 from petasos.guard.mutations import (
     _COPIES,
     _INTERPRETERS,
@@ -43,7 +44,6 @@ _HELP_FLAGS = frozenset({"-h", "--help"})
 _SHELLS = frozenset({"ash", "bash", "dash", "ksh", "sh", "zsh"})
 _ALL_NAMES = frozenset({"*", "--all", "-a", "all"})
 _TRUTHY = frozenset({"1", "true", "yes", "on"})
-_MAX_HEREDOCS = 8
 _HEREDOC_OPEN = re.compile(r"""<<-?[ \t]*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\1""")
 # These programs have known meanings here even though they have no command
 # rule. In particular git/npm config writes are not host settings writes.
@@ -56,6 +56,35 @@ _KNOWN_PROGRAMS = (
     | _SHELLS
     | {"python", "eval", "git", "npm", "npx", "pnpm", "yarn", "dd", "mv", "rm", "chmod"}
 )
+_TOO_DEEP = "command nested too deeply to inspect"
+
+
+@dataclass(frozen=True, slots=True)
+class _Rules:
+    """The command rules for one text, indexed by the program each names.
+
+    A command is compared only with its own program's rules, or with the
+    rules that also match an unknown program, so the cost per command does
+    not grow with the number of rules.
+    """
+
+    by_program: Mapping[str, tuple[CommandRule, ...]]
+    unknown: tuple[CommandRule, ...]
+    starters: frozenset[str]
+    flag_programs: frozenset[str]
+
+
+def _index(rules: tuple[CommandRule, ...], surface: GuardrailSurface) -> _Rules:
+    grouped: dict[str, list[CommandRule]] = {}
+    for rule in rules:
+        grouped.setdefault(rule.words[0].casefold(), []).append(rule)
+    flag_programs = frozenset(flag.program.casefold() for flag in surface.flags)
+    return _Rules(
+        by_program={program: tuple(found) for program, found in grouped.items()},
+        unknown=tuple(rule for rule in rules if rule.unknown_program and rule.tail is not None),
+        starters=frozenset(grouped) | flag_programs | _WRAPPERS | _SHELLS | {"python", "eval"},
+        flag_programs=flag_programs,
+    )
 
 
 def _command_change(
@@ -73,9 +102,7 @@ def _command_change(
     command (see ``recognize``), or ``None``. Only a rule's ``except_exact``
     consults it.
     """
-    if len(text) > _MAX_CHARS:
-        text = text[:_MAX_CHARS]
-    rules = library_rules() + surface.commands
+    rules = _index(library_rules() + surface.commands, surface)
     hit = _each_command(_spelled(text), owned, surface, rules, env, cwd, depth=0, plain=plain)
     if hit is not None:
         return hit
@@ -86,7 +113,7 @@ def _each_command(
     commands: list[tuple[_Simple, _Simple | None]],
     owned: _Owned,
     surface: GuardrailSurface,
-    rules: tuple[CommandRule, ...],
+    rules: _Rules,
     env: Mapping[str, str],
     cwd: str,
     *,
@@ -98,7 +125,7 @@ def _each_command(
     A command's Windows-path spelling (see ``_spelled``) is checked for what
     it names, not for what it runs, so it adds no nested work.
     """
-    for command, spelled in commands[:_MAX_COMMANDS]:
+    for command, spelled in commands:
         hit = _one_command(command, owned, surface, rules, env, cwd, depth=depth, plain=plain)
         if hit is None and spelled is not None:
             hit = _one_command(
@@ -178,14 +205,14 @@ def _heredoc_hit(
 
 
 def _heredocs(text: str) -> list[tuple[str, str]]:
-    """The opening line and the body of each here-document, up to a small bound.
+    """The opening line and the body of each here-document.
 
     A document with no closing line runs to the end of the text.
     """
     lines = text.split("\n")
     found: list[tuple[str, str]] = []
     index = 0
-    while index < len(lines) and len(found) < _MAX_HEREDOCS:
+    while index < len(lines):
         opened = _HEREDOC_OPEN.search(lines[index])
         if opened is None:
             index += 1
@@ -203,7 +230,7 @@ def _one_command(
     command: _Simple,
     owned: _Owned,
     surface: GuardrailSurface,
-    rules: tuple[CommandRule, ...],
+    rules: _Rules,
     env: Mapping[str, str],
     cwd: str,
     *,
@@ -238,17 +265,16 @@ def _one_command(
         not known_program
         and program not in _KNOWN_PROGRAMS
         and _native_shell(prepared[0]) is None
-        and not any(program == rule.words[0].casefold() for rule in rules)
-        and not any(program == flag.program.casefold() for flag in surface.flags)
+        and program not in rules.by_program
+        and program not in rules.flag_programs
     )
-    for command_rule in rules:
+    for command_rule in rules.unknown if unknown else rules.by_program.get(program, ()):
         if helping and command_rule.help_clears:
             continue
         if command_rule.except_exact and plain == command_rule.except_exact:
             continue
         candidate = rule_argv
-        fallback = unknown and command_rule.unknown_program and command_rule.tail is not None
-        if fallback:
+        if unknown:
             candidate = (command_rule.words[0], *prepared[1:])
         if _rule_matches(candidate, command_rule):
             return GuardrailHit(command_rule.kind, command_rule.label)
@@ -262,13 +288,16 @@ def _one_command(
     # The word after ``-m`` is a module name, not a file.
     acted = (prepared[0], *module[1:]) if module else prepared
     hit = _mutation(acted, command.redirects, owned, env, cwd)
-    if hit is not None or depth >= 3:
+    if hit is not None or depth > _MAX_DEPTH:
         return hit
-    if checks_only:
+    if checks_only or depth == _MAX_DEPTH:
+        if depth == _MAX_DEPTH and not checks_only and _carries_script(prepared, program, module):
+            # Text this deep is not read. It is not allowed unread either.
+            return GuardrailHit("settings", _TOO_DEEP)
         if program in _TEXT_ONLY or program in _READERS:
             return None
-        # At the depth limit, the started command is judged without its scripts.
-        return _started(prepared, owned, surface, rules, env, cwd, 3)
+        # Past the depth limit, the started command is judged without its scripts.
+        return _started(prepared, owned, surface, rules, env, cwd, _MAX_DEPTH)
     found: GuardrailHit | None = None
     if program == "python":
         script = _c_argument(prepared)
@@ -292,6 +321,18 @@ def _one_command(
     if found is not None or program in _TEXT_ONLY or program in _READERS:
         return found
     return _started(prepared, owned, surface, rules, env, cwd, depth)
+
+
+def _carries_script(argv: tuple[str, ...], program: str, module: tuple[str, ...] | None) -> bool:
+    """True when ``argv`` hands text to a shell, ``eval`` or Python that is read as commands."""
+    if (program in _SHELLS or program == "python") and _c_argument(argv) is not None:
+        return True
+    if program == "python" and module:
+        return True
+    if program == "eval":
+        return len(argv) > 1
+    shell = _native_shell(argv[0])
+    return shell is not None and _native_script(shell, argv) is not None
 
 
 def _asks_help(argv: tuple[str, ...]) -> bool:
@@ -377,7 +418,7 @@ def _started(
     argv: tuple[str, ...],
     owned: _Owned,
     surface: GuardrailSurface,
-    rules: tuple[CommandRule, ...],
+    rules: _Rules,
     env: Mapping[str, str],
     cwd: str,
     depth: int,
@@ -391,9 +432,7 @@ def _started(
     cmd. Each word's path is worked out once for the whole line, so the
     second pass costs little.
     """
-    starters = {rule.words[0].casefold() for rule in rules}
-    starters.update(flag.program.casefold() for flag in surface.flags)
-    starters.update(_WRAPPERS, _SHELLS, {"python", "eval"})
+    starters = rules.starters
     first = next(
         (
             i
@@ -403,21 +442,25 @@ def _started(
         None,
     )
     native = next((i for i in range(1, len(argv)) if _native_shell(argv[i]) is not None), None)
+    # A pass that ran out of depth is reported only when the other finds nothing.
+    deep: GuardrailHit | None = None
     for index in (first, native):
         if index is None:
             continue
         rest = _Simple(argv[index:], (), ())
         hit = _one_command(rest, owned, surface, rules, env, cwd, depth=depth + 1)
-        if hit is not None:
+        if hit is not None and hit.target == _TOO_DEEP:
+            deep = deep or hit
+        elif hit is not None:
             return hit
-    return None
+    return deep
 
 
 def _nested(
     script: str,
     owned: _Owned,
     surface: GuardrailSurface,
-    rules: tuple[CommandRule, ...],
+    rules: _Rules,
     env: Mapping[str, str],
     cwd: str,
     depth: int,
@@ -430,7 +473,7 @@ def _native(
     shell: str,
     owned: _Owned,
     surface: GuardrailSurface,
-    rules: tuple[CommandRule, ...],
+    rules: _Rules,
     env: Mapping[str, str],
     cwd: str,
     depth: int,
@@ -472,11 +515,11 @@ def _c_argument(argv: tuple[str, ...]) -> str | None:
 
 
 def _rule_matches(argv: tuple[str, ...], rule: CommandRule) -> bool:
+    """True when ``argv`` matches ``rule``. The caller has matched the program."""
     if len(argv) < len(rule.words):
         return False
-    for index, expected in enumerate(rule.words):
-        actual = _program(argv[index]) if index == 0 else argv[index].casefold()
-        if actual != expected.casefold():
+    for index in range(1, len(rule.words)):
+        if argv[index].casefold() != rule.words[index].casefold():
             return False
     if rule.requires_flag is not None and not any(
         word == rule.requires_flag or word.startswith(rule.requires_flag + "=") for word in argv
@@ -606,10 +649,8 @@ def _judge_code(
     Comments are removed first. A ``#`` outside a string starts a comment;
     one inside a string does not. See :func:`_strip_python_comments`.
     """
-    if len(text) > _MAX_CHARS:
-        text = text[:_MAX_CHARS]
     visible = _strip_python_comments(text)
-    for piece in _embedded(visible)[:_MAX_COMMANDS]:
+    for piece in _embedded(visible):
         hit = _command_change(piece, owned, surface, env, cwd)
         if hit is not None:
             return hit
