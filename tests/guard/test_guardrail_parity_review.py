@@ -126,3 +126,10 @@ def test_writer_words_in_the_command_text_are_a_change(
 def test_the_exact_plain_enable_stays_exempt(tmp_path: Path) -> None:
     assert _hit(tmp_path, "hermes plugins enable petasos") is None
     assert _hit(tmp_path, "echo hermes plugins enable petasos") is not None
+
+
+def test_a_read_only_update_check_after_a_long_prefix_is_read_in_full(tmp_path: Path) -> None:
+    """The old length cap cut ``--check`` off; the whole text is read now."""
+    assert _hit(tmp_path, " " * 99987 + "hermes update --check") is None
+    hit = _hit(tmp_path, " " * 99987 + "hermes update")
+    assert hit is not None and hit.target == "hermes update"
