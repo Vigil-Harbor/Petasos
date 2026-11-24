@@ -310,3 +310,16 @@ def test_a_path_the_system_cannot_work_out_is_never_a_plain_read(
     for text in (code, 'print("~reviewaccount/notes.txt")'):
         result = recognize("execute_code", {"code": text}, protected=(), environ=env, cwd="/w")
         assert result is not None and result.target == bounds._UNREADABLE
+
+
+def test_after_an_entry_larger_than_the_cache_every_path_is_charged(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A path kept after the oversized entry cannot answer for free and save the budget."""
+    monkeypatch.setattr(paths, "_SEEN_LIMIT", 150)
+    owned = paths._Owned({}, ())
+    owned.work.path_chars = 165
+    answers = [paths._match_path(word, owned, {}, "/w") for word in ["a", " " * 90, "b", "c", "b"]]
+    assert answers[:4] == [None] * 4
+    assert answers[4] is not None and answers[4].target == _TOO_LONG
+    assert owned.seen == {}

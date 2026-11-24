@@ -160,7 +160,8 @@ def _match_path(
     directory only.
 
     Working out a new answer spends the recognition's path budget. Once it
-    is gone the answer is that the command is too long to inspect.
+    is gone the answer is that the command is too long to inspect. After an
+    entry too large for the cache, every answer is new.
     """
     # Everything the answer is worked out from, so a changed variable is a new
     # question. The word stays as written: braces and quotes are read before its
@@ -177,7 +178,7 @@ def _match_path(
         above,
         hedge,
     )
-    if key in owned.seen:
+    if not owned.work.uncached and key in owned.seen:
         return owned.seen[key]
     # The work grows with the word and the directory it is read against, so
     # a working directory that keeps growing (``cd a; cd a; ...``) runs the
@@ -189,6 +190,8 @@ def _match_path(
     except _Unreadable:
         owned.work.unreadable = True
         found = GuardrailHit("settings", _UNREADABLE)
+    if owned.work.uncached:
+        return found
     # What the key keeps, with a little for the entry itself.
     size = sum(len(part) for part in (raw, cwd, key[3], key[4]))
     size += sum(len(name) + len(value or "") for name, value in key[1]) + 64
@@ -196,8 +199,10 @@ def _match_path(
         owned.seen.clear()
         owned.work.retained = 0
     if size > _SEEN_LIMIT:
-        # An entry larger than the whole cache is not kept, but it still
-        # empties the cache, as any entry that does not fit does.
+        # An entry larger than the whole cache is not kept. Caching stops for
+        # the rest of the recognition: what the cache held before it is gone,
+        # and nothing kept after it may answer a question for free.
+        owned.work.uncached = True
         return found
     owned.seen[key] = found
     owned.work.retained += size

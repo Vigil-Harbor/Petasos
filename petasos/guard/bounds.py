@@ -48,6 +48,9 @@ class _Work:
     path_chars: int = _PATH_BUDGET
     # Characters held by the cache of worked-out paths.
     retained: int = 0
+    # Set once an entry larger than the whole cache was met. The cache is then
+    # emptied and stays off, so every later path is charged to the budget.
+    uncached: bool = field(default=False, init=False)
     # Set once a path could not be worked out (``_UNREADABLE``). Like a spent
     # budget, it turns a recognition that found nothing into a report.
     unreadable: bool = field(default=False, init=False)
