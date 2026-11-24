@@ -6,7 +6,7 @@ import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from petasos.guard.bounds import _MAX_DEPTH, _MAX_QUOTE_DEPTH, _WORD_BUDGET
+from petasos.guard.bounds import _MAX_DEPTH, _MAX_QUOTE_DEPTH, _TOO_DEEP, _TOO_LONG
 from petasos.guard.mutations import (
     _COPIES,
     _INTERPRETERS,
@@ -62,8 +62,6 @@ _KNOWN_PROGRAMS = (
     | _SHELLS
     | {"python", "eval", "git", "npm", "npx", "pnpm", "yarn", "dd", "mv", "rm", "chmod"}
 )
-_TOO_DEEP = "command nested too deeply to inspect"
-_TOO_LONG = "command too long to inspect"
 _BLANKS = (" ", "\t", "\n")
 
 
@@ -129,66 +127,73 @@ def _command_change(
     cwd: str,
     *,
     plain: tuple[str, ...] | None = None,
+    depth: int = 0,
 ) -> GuardrailHit | None:
     """The first guardrail change ``text`` makes when a shell runs it.
 
     ``plain`` is the whole tool call's command text read as one plain
     command (see ``recognize``), or ``None``. Only a rule's ``except_exact``
-    consults it.
+    consults it. ``depth`` is how deep in other text ``text`` was found
+    (see ``_MAX_DEPTH``).
     """
     rules = _index(library_rules() + surface.commands, surface)
     commands = _spelled(text)
-    hit = _each_command(commands, owned, surface, rules, env, cwd, depth=0, plain=plain)
+    hit = _each_command(commands, owned, surface, rules, env, cwd, depth=depth, plain=plain)
     if hit is None:
-        hit = _heredoc_hit(text, owned, surface, env, cwd)
+        hit = _heredoc_hit(text, owned, surface, env, cwd, depth)
     if hit is None:
-        hit = _quoted_hit(commands, surface, rules)
+        hit = _quoted_hit(commands, owned, surface, rules, depth=depth, plain=plain)
     return hit
 
 
 def _quoted_hit(
     commands: list[tuple[_Simple, _Simple | None]],
+    owned: _Owned,
     surface: GuardrailSurface,
     rules: _Rules,
+    *,
+    depth: int,
+    plain: tuple[str, ...] | None,
 ) -> GuardrailHit | None:
     """A configuration write written inside a quoted word.
 
     A shell does not run a quoted argument, but the text may still be run
     later (written to a script, passed to ``ssh``, kept in an alias). So the
     text of every word that holds a blank and names a writer's program or
-    verb is read again as commands, to any depth. There, a writer's program
-    word, or the verb such a rule also matches after an unknown program
-    (``config``), starts a match wherever it stands. This reading can only
-    add a match.
+    verb is read again as commands, and so on inside it. There, a writer's
+    program word, or the verb such a rule also matches after an unknown
+    program (``config``), starts a match wherever it stands. This reading
+    can only add a match.
 
     Each word that may start a match costs the words after it in its
-    command, counted against one budget for the whole text, so the cost
-    stays linear. Words in the command text itself are counted but not
-    matched: the shell reading has judged them. A text that runs out of
-    budget is reported as too long to inspect, and quoted text nested
-    deeper than ``_MAX_QUOTE_DEPTH`` as too deep.
+    command, spent from the recognition's one word budget, so the cost stays
+    linear. Words in the command text itself are counted but not matched:
+    the shell reading has judged them. A text that runs out of budget is
+    reported as too long to inspect. Each level of quoting adds one to
+    ``depth``; quoted text deeper than ``_MAX_QUOTE_DEPTH`` is reported as
+    too deep.
     """
-    budget = _WORD_BUDGET
-    pending = [(commands, 0)]
+    work = owned.work
+    pending = [(commands, depth)]
     while pending:
-        parsed, depth = pending.pop()
+        parsed, level = pending.pop()
+        exempt = plain if level == depth else None
         for command, spelled in parsed:
             for words in (command.argv,) if spelled is None else (command.argv, spelled.argv):
                 for index, word in enumerate(words):
                     if words is command.argv and _names_writer(word, rules):
-                        if depth == _MAX_QUOTE_DEPTH:
+                        if level >= _MAX_QUOTE_DEPTH:
                             return GuardrailHit("settings", _TOO_DEEP)
-                        pending.append((_spelled(word), depth + 1))
+                        pending.append((_spelled(word), level + 1))
                     starts = _writer_starts(words, index, surface, rules)
                     if not starts:
                         continue
-                    budget -= len(words) - index - 1
-                    if budget < 0:
+                    if not work.spend_words(len(words) - index - 1):
                         return GuardrailHit("settings", _TOO_LONG)
-                    if depth == 0:
+                    if level == depth:
                         continue
                     for start in starts:
-                        hit = _writer_at(words, index, start, surface, rules)
+                        hit = _writer_at(words, index, start, surface, rules, exempt)
                         if hit is not None:
                             return hit
     return None
@@ -233,11 +238,18 @@ def _starts_program(
 
 
 def _writer_at(
-    words: tuple[str, ...], index: int, start: str, surface: GuardrailSurface, rules: _Rules
+    words: tuple[str, ...],
+    index: int,
+    start: str,
+    surface: GuardrailSurface,
+    rules: _Rules,
+    exempt: tuple[str, ...] | None,
 ) -> GuardrailHit | None:
     if start == "verb":
         standing: dict[str, tuple[tuple[str, ...], ...]] = {}
         for rule in rules.unknown_writers:
+            if rule.except_exact and exempt == rule.except_exact:
+                continue
             name = rule.words[0]
             if name not in standing:
                 standing[name] = _readings((name, *words[index:]), surface)
@@ -247,6 +259,8 @@ def _writer_at(
     prepared = _invocation(words[index:], surface)
     readings = _readings(prepared, surface)
     for rule in rules.writers.get(_program(prepared[0]), ()):
+        if rule.except_exact and exempt == rule.except_exact:
+            continue
         if any(_rule_matches(candidate, rule) for candidate in readings):
             return GuardrailHit(rule.kind, rule.label)
     return None
@@ -284,16 +298,21 @@ def _each_command(
             )
         if hit is not None:
             return hit
-        cwd = _after_cd(command, env, cwd)
+        cwd = _after_cd(command, owned, env, cwd)
+        if owned.work.spent:
+            return GuardrailHit("settings", _TOO_LONG)
     return None
 
 
-def _after_cd(command: _Simple, env: Mapping[str, str], cwd: str, *, native: bool = False) -> str:
+def _after_cd(
+    command: _Simple, owned: _Owned, env: Mapping[str, str], cwd: str, *, native: bool = False
+) -> str:
     """The working directory after ``command``, when it is a ``cd``.
 
     On Windows a relative directory has two readings. Git Bash's own ``cd``
     takes the shell's, and ``cd`` inside a PowerShell or cmd script
-    (``native``) takes the system's.
+    (``native``) takes the system's. Working out the directory spends the
+    recognition's path budget; the caller reports a spent budget.
     """
     argv, _assignments = _strip_wrappers(command.argv)
     if not argv or _program(argv[0]) not in {"cd", "pushd"}:
@@ -302,6 +321,8 @@ def _after_cd(command: _Simple, env: Mapping[str, str], cwd: str, *, native: boo
     if not targets:
         return env.get("HOME") or cwd
     if len(targets) != 1 or targets[0] == "-":
+        return cwd
+    if not owned.work.spend_path(len(targets[0]) + len(cwd)):
         return cwd
     readings = _expand_path(targets[0], env, cwd, hedge=False)
     return readings[0] if native else readings[-1]
@@ -313,6 +334,7 @@ def _heredoc_hit(
     surface: GuardrailSurface,
     env: Mapping[str, str],
     cwd: str,
+    depth: int = 0,
 ) -> GuardrailHit | None:
     """Program text handed to an interpreter as a here-document.
 
@@ -324,7 +346,8 @@ def _heredoc_hit(
     Windows-path spelling, adds the check for its language. Each check runs
     at most once and on its own, and a hit from any of them counts: the
     Python check removes comments, so finding Python on the line must not
-    take the place of the check for another interpreter.
+    take the place of the check for another interpreter. The body read as
+    a program is one level deeper than ``text``.
     """
     for line, body in _heredocs(text):
         pairs = _spelled(line)
@@ -341,7 +364,7 @@ def _heredoc_hit(
                 checks.add("names")
         hit = None
         if "python" in checks:
-            hit = _judge_code(body, owned, surface, env, cwd)
+            hit = _judge_code(body, owned, surface, env, cwd, depth=depth + 1)
         if hit is None and "names" in checks:
             hit = _code_names_path(body, owned, env, cwd)
         if hit is not None:
@@ -389,6 +412,11 @@ def _one_command(
     ``checks_only`` judges what the command names (its program, rules, flags,
     paths and redirects, and a command it starts) without entering a script
     or program text it carries.
+
+    ``depth`` counts the steps into nested text that led here, one for each
+    (see ``_MAX_DEPTH``). A command at the limit is still judged by what it
+    names, and a command it starts one level further; a script it carries
+    is not read, and is reported as too deep to inspect.
     """
     prepared, assignments = _strip_wrappers(command.argv)
     prepared = _invocation(prepared, surface)
@@ -438,21 +466,17 @@ def _one_command(
     # The word after ``-m`` is a module name, not a file.
     acted = (prepared[0], *module[1:]) if module else prepared
     hit = _mutation(acted, command.redirects, owned, env, cwd)
-    if hit is not None or depth > _MAX_DEPTH:
+    if hit is not None:
         return hit
-    if checks_only or depth == _MAX_DEPTH:
-        if depth == _MAX_DEPTH and not checks_only and _carries_script(prepared, program, module):
-            # Text this deep is not read. It is not allowed unread either.
-            return GuardrailHit("settings", _TOO_DEEP)
-        if program in _TEXT_ONLY or program in _READERS:
-            return None
-        # Past the depth limit, the started command is judged without its scripts.
-        return _started(prepared, owned, surface, rules, env, cwd, _MAX_DEPTH)
+    if checks_only or depth >= _MAX_DEPTH:
+        return _at_limit(
+            prepared, program, module, owned, surface, rules, env, cwd, depth, checks_only
+        )
     found: GuardrailHit | None = None
     if program == "python":
         script = _c_argument(prepared)
         if script is not None:
-            found = _judge_code(script, owned, surface, env, cwd)
+            found = _judge_code(script, owned, surface, env, cwd, depth=depth + 1)
         if found is None and module:
             rewritten = _Simple(module, (), ())
             found = _one_command(
@@ -467,10 +491,43 @@ def _one_command(
     elif (shell := _native_shell(prepared[0])) is not None:
         script = _native_script(shell, prepared)
         if script is not None:
-            found = _native(script, shell, owned, surface, rules, env, cwd, depth)
+            found = _native(script, shell, owned, surface, rules, env, cwd, depth + 1)
     if found is not None or program in _TEXT_ONLY or program in _READERS:
         return found
     return _started(prepared, owned, surface, rules, env, cwd, depth)
+
+
+def _at_limit(
+    argv: tuple[str, ...],
+    program: str,
+    module: tuple[str, ...] | None,
+    owned: _Owned,
+    surface: GuardrailSurface,
+    rules: _Rules,
+    env: Mapping[str, str],
+    cwd: str,
+    depth: int,
+    checks_only: bool,
+) -> GuardrailHit | None:
+    """The rest of a command at the depth limit, or one judged only by what it names.
+
+    Text this deep is not read. It is not allowed unread either: a script
+    the command carries is reported as too deep, and so, past the limit, is
+    a command it would start. A ``checks_only`` reading reports neither; the
+    reading it accompanies has judged them.
+    """
+    if not checks_only and _carries_script(argv, program, module):
+        return GuardrailHit("settings", _TOO_DEEP)
+    if program in _TEXT_ONLY or program in _READERS:
+        return None
+    if depth > _MAX_DEPTH:
+        if not checks_only and _start_indexes(argv, surface, rules) != (None, None):
+            return GuardrailHit("settings", _TOO_DEEP)
+        return None
+    # The started command is judged one level further, without its scripts.
+    return _started(
+        argv, owned, surface, rules, env, cwd, max(depth, _MAX_DEPTH), checks_only=checks_only
+    )
 
 
 def _carries_script(argv: tuple[str, ...], program: str, module: tuple[str, ...] | None) -> bool:
@@ -557,6 +614,8 @@ def _started(
     env: Mapping[str, str],
     cwd: str,
     depth: int,
+    *,
+    checks_only: bool = False,
 ) -> GuardrailHit | None:
     """A command that this one starts, such as ``timeout 5 hermes ...``.
 
@@ -565,8 +624,28 @@ def _started(
     pass comes first, so reading PowerShell and cmd never hides a command it
     would have found. Then it is judged from the first later PowerShell or
     cmd. Each word's path is worked out once for the whole line, so the
-    second pass costs little.
+    second pass costs little. The started command is one level deeper.
     """
+    # A pass that ran out of depth is reported only when the other finds nothing.
+    deep: GuardrailHit | None = None
+    for index in _start_indexes(argv, surface, rules):
+        if index is None:
+            continue
+        rest = _Simple(argv[index:], (), ())
+        hit = _one_command(
+            rest, owned, surface, rules, env, cwd, depth=depth + 1, checks_only=checks_only
+        )
+        if hit is not None and hit.target == _TOO_DEEP:
+            deep = deep or hit
+        elif hit is not None:
+            return hit
+    return deep
+
+
+def _start_indexes(
+    argv: tuple[str, ...], surface: GuardrailSurface, rules: _Rules
+) -> tuple[int | None, int | None]:
+    """Where ``_started`` starts again: the first later starter, then native shell."""
     starters = rules.starters
     first = next(
         (
@@ -577,18 +656,7 @@ def _started(
         None,
     )
     native = next((i for i in range(1, len(argv)) if _native_shell(argv[i]) is not None), None)
-    # A pass that ran out of depth is reported only when the other finds nothing.
-    deep: GuardrailHit | None = None
-    for index in (first, native):
-        if index is None:
-            continue
-        rest = _Simple(argv[index:], (), ())
-        hit = _one_command(rest, owned, surface, rules, env, cwd, depth=depth + 1)
-        if hit is not None and hit.target == _TOO_DEEP:
-            deep = deep or hit
-        elif hit is not None:
-            return hit
-    return deep
+    return first, native
 
 
 def _nested(
@@ -615,9 +683,11 @@ def _native(
 ) -> GuardrailHit | None:
     """A script given to PowerShell or cmd, judged command by command.
 
-    A reader of that shell is judged by its redirects only. ``Invoke-Expression``
-    is PowerShell's ``eval``. Whether every later command in a pipeline only
-    reads is worked out once per pipeline, from its end.
+    ``depth`` is the script's own depth. A reader of that shell is judged by
+    its redirects only. ``Invoke-Expression`` is PowerShell's ``eval``; the
+    text it runs is one level deeper, and is reported as too deep to inspect
+    past the limit. Whether every later command in a pipeline only reads is
+    worked out once per pipeline, from its end.
     """
     for pipeline in _native_parse(script, shell, env):
         passive = _passive_after(shell, pipeline)
@@ -626,16 +696,20 @@ def _native(
             if plain and _native_reads(shell, argv, passive[index + 1]):
                 hit = _mutation((), command.redirects, owned, env, cwd)
             else:
-                hit = _one_command(command, owned, surface, rules, env, cwd, depth=depth + 1)
+                hit = _one_command(command, owned, surface, rules, env, cwd, depth=depth)
             evaluates = (
                 shell != "cmd" and bool(argv) and _program(argv[0]) in {"iex", "invoke-expression"}
             )
-            if hit is None and evaluates and depth + 1 < 3:
+            if hit is None and evaluates and len(argv) > 1:
+                if depth >= _MAX_DEPTH:
+                    return GuardrailHit("settings", _TOO_DEEP)
                 rest = " ".join(argv[1:])
                 hit = _native(rest, shell, owned, surface, rules, env, cwd, depth + 1)
             if hit is not None:
                 return hit
-            cwd = _after_cd(command, env, cwd, native=True)
+            cwd = _after_cd(command, owned, env, cwd, native=True)
+            if owned.work.spent:
+                return GuardrailHit("settings", _TOO_LONG)
     return None
 
 
@@ -693,15 +767,22 @@ def _judge_code(
     surface: GuardrailSurface,
     env: Mapping[str, str],
     cwd: str,
+    *,
+    depth: int = 0,
 ) -> GuardrailHit | None:
     """Embedded shell commands, then any protected path the program text names.
 
     Comments are removed first. A ``#`` outside a string starts a comment;
     one inside a string does not. See :func:`_strip_python_comments`.
+    ``depth`` is the program text's own depth; a command written inside it
+    is one level deeper, and is reported as too deep to inspect past the
+    limit.
     """
     visible = _strip_python_comments(text)
     for piece in _embedded(visible):
-        hit = _command_change(piece, owned, surface, env, cwd)
+        if depth >= _MAX_DEPTH:
+            return GuardrailHit("settings", _TOO_DEEP)
+        hit = _command_change(piece, owned, surface, env, cwd, depth=depth + 1)
         if hit is not None:
             return hit
     return _code_names_path(visible, owned, env, cwd)

@@ -15,6 +15,8 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from petasos.guard import paths
+from petasos.guard.bounds import _SEEN_LIMIT
 from petasos.guard.guardrail import recognize
 from petasos.hermes.guardrail import hermes_surface
 
@@ -84,6 +86,17 @@ def test_a_long_powershell_pipeline_costs_linear_time(tmp_path: Path) -> None:
     assert _assert_linear(tmp_path, make, 500) == [None, None, None]
 
 
+def test_a_growing_working_directory_costs_linear_time(tmp_path: Path) -> None:
+    """Each ``cd`` lengthens the directory; the path budget ends the growth."""
+
+    def make(count: int) -> str:
+        return "cd aa; " * count + "rm x"
+
+    hits = _assert_linear(tmp_path, make, 400)
+    last = hits[-1]
+    assert last is not None and last.target == "command too long to inspect"
+
+
 def test_many_protected_path_uses_in_program_text_cost_linear_time(tmp_path: Path) -> None:
     config = str(tmp_path / "hermes" / "config.yaml")
 
@@ -104,3 +117,14 @@ def test_many_protected_path_uses_in_program_text_cost_linear_time(tmp_path: Pat
 )
 def test_reading_quoted_text_costs_linear_time(tmp_path: Path, make: Callable[[int], str]) -> None:
     assert _assert_linear(tmp_path, make, 300) == [None, None, None]
+
+
+def test_the_path_cache_keeps_a_bounded_size(tmp_path: Path) -> None:
+    owned = paths._Owned({}, ())
+    cwd = str(tmp_path)
+    for _ in range(2000):
+        cwd += "/aa"
+        paths._match_path("x", owned, {}, cwd)
+    kept = sum(len(key[0]) + len(key[2]) for key in owned.seen)
+    assert kept <= _SEEN_LIMIT
+    assert owned.work.retained <= _SEEN_LIMIT

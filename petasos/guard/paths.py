@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from petasos.guard.bounds import _SEEN_LIMIT, _TOO_LONG, _Work
 from petasos.guard.surface import _KINDS, GuardrailHit, GuardrailSurface
 
 if TYPE_CHECKING:
@@ -41,8 +42,11 @@ class _Owned:
 
     paths: Mapping[str, str]
     roots: tuple[str, ...]
-    # Answers already worked out during one recognition. A long line is
-    # judged from several starting words, and the same words come round again.
+    # One is made for each recognition, so the two fields below are its own:
+    # the work it has left, and the answers it has already worked out. A long
+    # line is judged from several starting words, and the same words come
+    # round again. The cache keeps at most ``_SEEN_LIMIT`` characters.
+    work: _Work = field(default_factory=_Work, compare=False, repr=False)
     seen: dict[_SeenKey, GuardrailHit | None] = field(
         default_factory=dict, compare=False, repr=False
     )
@@ -154,6 +158,9 @@ def _match_path(
     ``above`` also matches a directory inside a root that holds a protected
     path, and a wildcard there that covers one, against the working
     directory only.
+
+    Working out a new answer spends the recognition's path budget. Once it
+    is gone the answer is that the command is too long to inspect.
     """
     # Everything the answer is worked out from, so a changed variable is a new
     # question. The word stays as written: braces and quotes are read before its
@@ -170,9 +177,23 @@ def _match_path(
         above,
         hedge,
     )
-    if key not in owned.seen:
-        owned.seen[key] = _find_path(raw, owned, env, cwd, above=above, hedge=hedge)
-    return owned.seen[key]
+    if key in owned.seen:
+        return owned.seen[key]
+    # The work grows with the word and the directory it is read against, so
+    # a working directory that keeps growing (``cd a; cd a; ...``) runs the
+    # budget out instead of costing quadratic time.
+    if not owned.work.spend_path(len(raw) + len(cwd) + 16):
+        return GuardrailHit("settings", _TOO_LONG)
+    found = _find_path(raw, owned, env, cwd, above=above, hedge=hedge)
+    # What the key keeps, with a little for the entry itself.
+    size = sum(len(part) for part in (raw, cwd, key[3], key[4]))
+    size += sum(len(name) + len(value or "") for name, value in key[1]) + 64
+    if owned.work.retained + size > _SEEN_LIMIT:
+        owned.seen.clear()
+        owned.work.retained = 0
+    owned.seen[key] = found
+    owned.work.retained += size
+    return found
 
 
 def _find_path(

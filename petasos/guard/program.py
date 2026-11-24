@@ -7,6 +7,7 @@ import re
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from petasos.guard.bounds import _TOO_LONG
 from petasos.guard.paths import _match_path, _Owned
 from petasos.guard.shell_parse import _program
 
@@ -127,7 +128,7 @@ def _code_names_path(
     """
     occurrences = _protected_uses(code, owned, env, cwd)
     for start, end, hit in occurrences:
-        if not _is_plain_code_read(code, start, end):
+        if hit.target == _TOO_LONG or not _is_plain_code_read(code, start, end):
             return hit
     return None
 
