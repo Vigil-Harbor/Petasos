@@ -42,6 +42,7 @@ _WRAPPER_VALUES = {
 
 _DQ_ESCAPED = frozenset({"$", "`", '"', "\\", "\n"})
 _EXECUTABLE_SUFFIXES = (".exe", ".cmd", ".bat", ".com")
+_HEREDOC_OPEN = re.compile(r"""<<-?[ \t]*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\1""")
 
 
 @dataclass(frozen=True, slots=True)
@@ -242,3 +243,65 @@ def _leading_assignments(
         assignments.append((name, value))
         index += 1
     return assignments, words[index:]
+
+
+def _heredocs(text: str) -> list[tuple[str, str]]:
+    """The opening line and the body of each here-document.
+
+    A document with no closing line runs to the end of the text.
+    """
+    lines = text.split("\n")
+    found: list[tuple[str, str]] = []
+    index = 0
+    while index < len(lines):
+        opened = _HEREDOC_OPEN.search(lines[index])
+        if opened is None:
+            index += 1
+            continue
+        tag = opened.group(2)
+        end = index + 1
+        while end < len(lines) and lines[end].strip() != tag:
+            end += 1
+        found.append((lines[index], "\n".join(lines[index + 1 : end])))
+        index = end + 1
+    return found
+
+
+def _python_module(argv: tuple[str, ...]) -> tuple[str, ...] | None:
+    """The module and its arguments for Python's ``-m``, after any interpreter options.
+
+    ``-m`` may be separate, joined to the module (``-mpkg``) or the last letter
+    of a cluster (``-um pkg``). ``-W`` and ``-X`` take the next word. ``-c``
+    runs code, not a module.
+    """
+    index = 1
+    while index < len(argv):
+        word = argv[index]
+        if not word.startswith("-") or word in ("-", "--") or word.startswith("--"):
+            return None
+        letters = word[1:]
+        if "m" in letters and letters.isalpha():
+            at = letters.index("m")
+            if "c" in letters[:at]:
+                return None
+            joined = letters[at + 1 :]
+            rest = argv[index + 1 :]
+            return (joined, *rest) if joined else (rest or None)
+        if letters.startswith("m"):
+            return (letters[1:], *argv[index + 1 :])
+        if letters.startswith("c"):
+            return None
+        index += 2 if word in ("-W", "-X") else 1
+    return None
+
+
+def _c_argument(argv: tuple[str, ...]) -> str | None:
+    for index, word in enumerate(argv[1:], start=1):
+        if word == "--":
+            return None
+        short = word.startswith("-") and not word.startswith("--") and "c" in word[1:]
+        if word == "-c" or short:
+            if index + 1 < len(argv):
+                return argv[index + 1]
+            return None
+    return None
