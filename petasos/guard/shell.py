@@ -21,6 +21,7 @@ from petasos.guard.program import _code_names_path, _embedded, _strip_python_com
 from petasos.guard.shell_parse import (
     _WRAPPERS,
     _assignment,
+    _parse,
     _program,
     _readings,
     _Simple,
@@ -66,43 +67,27 @@ def _command_change(
     cwd: str,
     *,
     plain: tuple[str, ...] | None = None,
+    drive_paths: bool = False,
 ) -> GuardrailHit | None:
     """The first guardrail change ``text`` makes when a shell runs it.
 
     ``plain`` is the whole tool call's command text read as one plain
     command (see ``recognize``), or ``None``. Only a rule's ``except_exact``
     consults it.
+
+    ``drive_paths`` adds the Windows-path reading of drive-letter words (see
+    ``_readings``). Only the tool call's own text takes it: a script or
+    program text inside it is read once, as the shell reads it, so the work
+    stays within twice one reading.
     """
     if len(text) > _MAX_CHARS:
         text = text[:_MAX_CHARS]
-    key = ("text", text, cwd, 0, plain)
-    if key in owned.judged:
-        return owned.judged[key]
     rules = library_rules() + surface.commands
-    hit = _any_reading(text, owned, surface, rules, env, cwd, depth=0, plain=plain)
-    if hit is None:
-        hit = _heredoc_hit(text, owned, surface, env, cwd)
-    owned.judged[key] = hit
-    return hit
-
-
-def _any_reading(
-    text: str,
-    owned: _Owned,
-    surface: GuardrailSurface,
-    rules: tuple[CommandRule, ...],
-    env: Mapping[str, str],
-    cwd: str,
-    *,
-    depth: int,
-    plain: tuple[str, ...] | None = None,
-) -> GuardrailHit | None:
-    """The first hit under any reading of ``text`` (see ``_readings``)."""
-    for commands in _readings(text):
-        hit = _each_command(commands, owned, surface, rules, env, cwd, depth=depth, plain=plain)
+    for commands in _readings(text) if drive_paths else (_parse(text),):
+        hit = _each_command(commands, owned, surface, rules, env, cwd, depth=0, plain=plain)
         if hit is not None:
             return hit
-    return None
+    return _heredoc_hit(text, owned, surface, env, cwd, drive_paths=drive_paths)
 
 
 def _each_command(
@@ -150,6 +135,8 @@ def _heredoc_hit(
     surface: GuardrailSurface,
     env: Mapping[str, str],
     cwd: str,
+    *,
+    drive_paths: bool = False,
 ) -> GuardrailHit | None:
     """Program text handed to an interpreter as a here-document.
 
@@ -160,7 +147,7 @@ def _heredoc_hit(
     for line, body in _heredocs(text):
         # Each reading of the opening line is judged on its own, so one that
         # adds Python cannot take the place of another's interpreter check.
-        for commands in _readings(line):
+        for commands in _readings(line) if drive_paths else (_parse(line),):
             programs = set()
             for command in commands:
                 argv, _assignments = _strip_wrappers(command.argv)
@@ -410,10 +397,7 @@ def _nested(
     cwd: str,
     depth: int,
 ) -> GuardrailHit | None:
-    key = ("nested", script, cwd, depth + 1, None)
-    if key not in owned.judged:
-        owned.judged[key] = _any_reading(script, owned, surface, rules, env, cwd, depth=depth + 1)
-    return owned.judged[key]
+    return _each_command(_parse(script), owned, surface, rules, env, cwd, depth=depth + 1)
 
 
 def _native(

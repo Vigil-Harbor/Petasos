@@ -33,10 +33,6 @@ _VAR_NAME = re.compile(r"\$\{?([A-Za-z_][A-Za-z0-9_]*)")
 # The word as written, the values of the variables it names, the working
 # directory, HERMES_HOME, HOME, ``above`` and ``hedge``.
 _SeenKey = tuple[str, tuple[tuple[str, str | None], ...], str, str, str, bool, bool]
-# The entry point, the command text, the working directory, the nesting depth
-# and the plain-command words. The environment and surface are fixed for one
-# recognition.
-_JudgedKey = tuple[str, str, str, int, tuple[str, ...] | None]
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,11 +44,6 @@ class _Owned:
     # Answers already worked out during one recognition. A long line is
     # judged from several starting words, and the same words come round again.
     seen: dict[_SeenKey, GuardrailHit | None] = field(
-        default_factory=dict, compare=False, repr=False
-    )
-    # Command texts already judged during one recognition, so a second
-    # reading of a text, or program text that repeats a command, costs no more.
-    judged: dict[_JudgedKey, GuardrailHit | None] = field(
         default_factory=dict, compare=False, repr=False
     )
 

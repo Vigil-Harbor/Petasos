@@ -132,15 +132,22 @@ def test_a_reading_that_adds_python_keeps_the_other_interpreter_check(tmp_path: 
     surface = hermes_surface([str(config)], roots=(str(home),))
     owned = _owned((str(config),), surface, ())
     text = f"perl -e 1; C:\\Tools\\python.exe <<EOF\n# '{config.as_posix()}'\nEOF"
-    hit = _heredoc_hit(text, owned, surface, {"HOME": str(tmp_path)}, str(tmp_path))
+    hit = _heredoc_hit(
+        text, owned, surface, {"HOME": str(tmp_path)}, str(tmp_path), drive_paths=True
+    )
     assert hit is not None
     assert hit.kind == "settings"
 
 
-def test_a_command_both_readings_share_is_judged_once(
+def test_only_the_tool_calls_own_text_takes_the_second_reading(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Program text the two readings share is not judged again, at any depth."""
+    """Program text inside the command is read once, so readings do not multiply.
+
+    Both levels hold a drive-letter word, and each reading of the outer text
+    ends in a different directory. With a second reading at every level the
+    inner ``echo ok`` would be judged four times.
+    """
     judged: list[tuple[str, ...]] = []
     original = shell._one_command
 
@@ -149,9 +156,9 @@ def test_a_command_both_readings_share_is_judged_once(
         return original(command, *args, **kwargs)  # type: ignore[arg-type]
 
     monkeypatch.setattr(shell, "_one_command", counting)
-    command = "python -c \"import os; os.system('echo ok')\" C:\\demo"
+    command = "cd C:a\\b; python -c \"import os; os.system('cd C:c\\\\d; echo ok')\""
     assert _recognize(tmp_path, "terminal", {"command": command}) is None
-    assert judged.count(("echo", "ok")) == 1
+    assert judged.count(("echo", "ok")) == 2
 
 
 @pytest.mark.parametrize(
