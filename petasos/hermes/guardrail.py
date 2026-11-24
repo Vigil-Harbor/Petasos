@@ -21,7 +21,9 @@ _PLUGIN_TAILS = (
     "plugins.auto_apply",
 )
 # ``approvals`` holds Hermes's approval settings (mode, timeout, deny list).
-_SETTINGS_TAILS = ("plugins.entries.petasos", "command_allowlist", "approvals")
+# ``petasos`` is the plugin's own top-level section. Petasos reads its
+# settings elsewhere, but a write there is still treated as a change.
+_SETTINGS_TAILS = ("plugins.entries.petasos", "command_allowlist", "approvals", "petasos")
 # Hermes's top-level options whose next word is a value, rather than a verb
 # (tools/approval_config_set.py). Other option words stand alone.
 _GLOBAL_VALUES = frozenset(
