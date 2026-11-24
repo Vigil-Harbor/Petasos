@@ -263,3 +263,20 @@ def test_an_unclosed_quoted_argument_costs_linear_time(
     for growth, elapsed in zip((4, 16), times[1:], strict=True):
         assert elapsed <= 3 * growth * times[0] + 0.05, (growth, times)
     assert hits[0] == hits[1] == hits[2]
+
+
+def test_an_entry_larger_than_the_cache_still_empties_it() -> None:
+    """The first ``'a'`` is not kept past the oversized entry, so asking again costs budget.
+
+    From ``/private/tmp`` the three literals spend the path budget exactly
+    with the first two; the third is a new answer and runs it out.
+    """
+    code = "\n".join((repr("a"), repr(" " * 999_943), repr("a"))) + "\n"
+    hit = recognize("execute_code", {"code": code}, protected=(), environ={}, cwd="/private/tmp")
+    assert hit is not None and hit.target == _TOO_LONG
+    owned = paths._Owned({}, ())
+    paths._match_path("a", owned, {}, "/w")
+    assert owned.seen
+    # Larger than the cache with its key, within the path budget.
+    assert paths._match_path("b" * (bounds._SEEN_LIMIT - 60), owned, {}, "/w") is None
+    assert owned.seen == {} and owned.work.retained == 0
