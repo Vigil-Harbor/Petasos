@@ -7,6 +7,7 @@ created, read or run. Every command is a guard input only.
 
 from __future__ import annotations
 
+import shlex
 import time
 from typing import TYPE_CHECKING
 
@@ -124,3 +125,33 @@ def test_one_path_larger_than_the_cache_is_not_kept(tmp_path: Path) -> None:
     assert owned.work.path_chars >= 0
     assert owned.work.retained <= bounds._SEEN_LIMIT
     assert sum(len(key[0]) + len(key[2]) for key in owned.seen) <= bounds._SEEN_LIMIT
+
+
+def _sh(script: str) -> str:
+    return "sh -c " + shlex.quote(script)
+
+
+@pytest.mark.parametrize(
+    "body",
+    ["print('{path}')", "open('{path}', 'w').write('x')"],
+    ids=["names", "writes"],
+)
+@pytest.mark.parametrize("interpreter", ["python", "ruby"])
+def test_a_here_document_in_a_shell_script_is_read_as_its_program(
+    tmp_path: Path, body: str, interpreter: str
+) -> None:
+    """The same text passed directly and as the sole script of ``sh -c`` or ``eval``."""
+    path = str(tmp_path.resolve() / _NAME)
+    text = f"{interpreter} <<END\n{body.format(path=path)}\nEND"
+    for command in (text, _sh(text), "eval " + shlex.quote(text)):
+        hit = _recognize(tmp_path, command)
+        assert hit is not None and hit.target == path, command
+
+
+def test_a_here_document_past_the_depth_limit_is_not_read(tmp_path: Path) -> None:
+    """Shell, Python, then a command string whose here-document would be a fourth level."""
+    code = 'import os; os.system("python <<END\nprint(1)\nEND")'
+    hit = _recognize(tmp_path, _sh("python -c " + shlex.quote(code)))
+    assert hit is not None and hit.target == _TOO_DEEP
+    # One level less is read, and the body changes nothing.
+    assert _recognize(tmp_path, "python -c " + shlex.quote(code)) is None

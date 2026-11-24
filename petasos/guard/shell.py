@@ -347,7 +347,8 @@ def _heredoc_hit(
     at most once and on its own, and a hit from any of them counts: the
     Python check removes comments, so finding Python on the line must not
     take the place of the check for another interpreter. The body read as
-    a program is one level deeper than ``text``.
+    a program is one level deeper than ``text``; past the limit a body left
+    unread is reported as too deep to inspect.
     """
     for line, body in _heredocs(text):
         pairs = _spelled(line)
@@ -362,6 +363,8 @@ def _heredoc_hit(
                 checks.add("python")
             if programs & _INTERPRETERS:
                 checks.add("names")
+        if checks and depth >= _MAX_DEPTH and body.strip():
+            return GuardrailHit("settings", _TOO_DEEP)
         hit = None
         if "python" in checks:
             hit = _judge_code(body, owned, surface, env, cwd, depth=depth + 1)
@@ -618,7 +621,13 @@ def _nested(
     cwd: str,
     depth: int,
 ) -> GuardrailHit | None:
-    return _each_command(_spelled(script), owned, surface, rules, env, cwd, depth=depth + 1)
+    """A script handed to a shell or ``eval``, one level deeper than ``depth``.
+
+    Its commands are judged in order, and a here-document in it is read as
+    the program its opening line feeds, as in the command text itself.
+    """
+    hit = _each_command(_spelled(script), owned, surface, rules, env, cwd, depth=depth + 1)
+    return hit or _heredoc_hit(script, owned, surface, env, cwd, depth + 1)
 
 
 def _native(
@@ -714,8 +723,10 @@ def _judge_code(
     one inside a string does not. See :func:`_strip_python_comments`.
     ``depth`` is the program text's own depth; a command written inside it
     is one level deeper, and is reported as too deep to inspect past the
-    limit.
+    limit. Program text itself past the limit is not read.
     """
+    if depth > _MAX_DEPTH and text.strip():
+        return GuardrailHit("settings", _TOO_DEEP)
     visible = _strip_python_comments(text)
     for piece in _embedded(visible):
         if depth >= _MAX_DEPTH:
