@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import base64
 import json
+import stat
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -353,7 +354,7 @@ def _collect(
             return live_rows, False
         rot_budget = max_bytes - used
         if rot_budget <= 0:
-            return live_rows, _size(rotated) == 0
+            return live_rows, _record_size(rotated) == 0
         rot_rows, rot_done, _used = _window(rotated, "rot", None, rot_budget)
         return live_rows + rot_rows, rot_done
     rot_rows, rot_done, _used = _window(rotated, "rot", cursor[1], max_bytes)
@@ -372,12 +373,7 @@ def _window(
     The third is how many bytes were read. A trailing partial line is not a
     record: a writer may still be appending it.
     """
-    try:
-        size = path.stat().st_size
-    except FileNotFoundError:
-        return [], True, 0
-    except OSError as exc:
-        raise ApiError("record_unreadable", "The activity record could not be opened.") from exc
+    size = _record_size(path)
     stop = size if end is None else min(end, size)
     if stop <= 0 or budget <= 0:
         return [], True, 0
@@ -676,6 +672,23 @@ def _cursor_reset(
     if cursor is None:
         return False
     return cursor[1] > _size(spool if cursor[0] == "live" else rotated)
+
+
+def _record_size(path: Path) -> int:
+    """A record's size, 0 when it is absent.
+
+    Anything at the path that is not a regular file is unreadable. Windows
+    gives a directory a size of 0, which would otherwise read as empty.
+    """
+    try:
+        status = path.stat()
+    except FileNotFoundError:
+        return 0
+    except OSError as exc:
+        raise ApiError("record_unreadable", "The activity record could not be opened.") from exc
+    if not stat.S_ISREG(status.st_mode):
+        raise ApiError("record_unreadable", "The activity record could not be opened.")
+    return status.st_size
 
 
 def _size(path: Path) -> int:

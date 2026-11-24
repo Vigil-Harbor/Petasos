@@ -105,7 +105,32 @@ def _program(token: str) -> str:
     return base
 
 
-def _parse(text: str) -> list[_Simple]:
+def _spelled(text: str) -> list[tuple[_Simple, _Simple | None]]:
+    """Each command as the shell reads it, with its Windows-path spelling when that differs.
+
+    A shell drops an unquoted backslash, so ``C:\\Tools\\hermes.exe`` names
+    ``C:Toolshermes.exe`` and ``C:/x/conf\\ig.yaml`` names ``C:/x/config.yaml``.
+    The spelling keeps the separators of a drive-letter word, for a native
+    path that reaches Windows without a shell, as program text's argument
+    lists do. Callers check it as well and keep any match: it may add a
+    match, never remove one. A kept backslash is never a separator, so both
+    parses hold the same commands in the same order.
+    """
+    shell = _parse(text)
+    if "\\" not in text or ":" not in text:
+        return [(command, None) for command in shell]
+    spelled = _parse(text, drive_paths=True)
+    if len(spelled) != len(shell):
+        return [(command, None) for command in shell]
+    return [(s, None if d == s else d) for s, d in zip(shell, spelled, strict=True)]
+
+
+def _parse(text: str, *, drive_paths: bool = False) -> list[_Simple]:
+    """Shell words, redirects and assignments, as a POSIX shell reads them.
+
+    ``drive_paths`` keeps a backslash before a letter or digit in a word that
+    starts with a drive letter. Use it only through ``_spelled``.
+    """
     commands: list[_Simple] = []
     words: list[str] = []
     redirects: list[str] = []
@@ -156,9 +181,15 @@ def _parse(text: str) -> list[_Simple]:
             continue
         if char == "\\" and index + 1 < length:
             nxt = text[index + 1]
-            # A pasted Windows drive path is also a possible program word on
-            # other hosts. Keep its separators rather than joining its parts.
-            if len(buf) >= 2 and buf[0].isalpha() and buf[1] == ":" and nxt.isalnum():
+            # The Windows-path reading of a pasted drive path keeps its
+            # separators rather than joining its parts.
+            if (
+                drive_paths
+                and len(buf) >= 2
+                and buf[0].isalpha()
+                and buf[1] == ":"
+                and nxt.isalnum()
+            ):
                 buf.append(char)
                 index += 1
                 continue

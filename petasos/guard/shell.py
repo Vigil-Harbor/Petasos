@@ -21,9 +21,9 @@ from petasos.guard.program import _code_names_path, _embedded, _strip_python_com
 from petasos.guard.shell_parse import (
     _WRAPPERS,
     _assignment,
-    _parse,
     _program,
     _Simple,
+    _spelled,
     _strip_wrappers,
 )
 from petasos.guard.surface import (
@@ -76,14 +76,14 @@ def _command_change(
     if len(text) > _MAX_CHARS:
         text = text[:_MAX_CHARS]
     rules = library_rules() + surface.commands
-    hit = _each_command(_parse(text), owned, surface, rules, env, cwd, depth=0, plain=plain)
+    hit = _each_command(_spelled(text), owned, surface, rules, env, cwd, depth=0, plain=plain)
     if hit is not None:
         return hit
     return _heredoc_hit(text, owned, surface, env, cwd)
 
 
 def _each_command(
-    commands: list[_Simple],
+    commands: list[tuple[_Simple, _Simple | None]],
     owned: _Owned,
     surface: GuardrailSurface,
     rules: tuple[CommandRule, ...],
@@ -93,9 +93,25 @@ def _each_command(
     depth: int,
     plain: tuple[str, ...] | None = None,
 ) -> GuardrailHit | None:
-    """Judge commands in order. A ``cd`` moves the directory the later ones run in."""
-    for command in commands[:_MAX_COMMANDS]:
+    """Judge commands in order. A ``cd`` moves the directory the later ones run in.
+
+    A command's Windows-path spelling (see ``_spelled``) is checked for what
+    it names, not for what it runs, so it adds no nested work.
+    """
+    for command, spelled in commands[:_MAX_COMMANDS]:
         hit = _one_command(command, owned, surface, rules, env, cwd, depth=depth, plain=plain)
+        if hit is None and spelled is not None:
+            hit = _one_command(
+                spelled,
+                owned,
+                surface,
+                rules,
+                env,
+                cwd,
+                depth=depth,
+                plain=plain,
+                checks_only=True,
+            )
         if hit is not None:
             return hit
         cwd = _after_cd(command, env, cwd)
@@ -133,19 +149,29 @@ def _heredoc_hit(
     The body's lines were already judged as shell commands, which is what a
     shell reading the document would run. This adds the reading for Python and
     the other interpreters, where a line is not a command.
+
+    The opening line's shell reading and its Windows-path spelling each choose
+    a check, so a spelling that adds Python cannot take the place of the
+    other's interpreter check. Each check runs at most once.
     """
     for line, body in _heredocs(text):
-        programs = set()
-        for command in _parse(line):
-            argv, _assignments = _strip_wrappers(command.argv)
-            if argv:
-                programs.add(_program(argv[0]))
-        if "python" in programs:
+        pairs = _spelled(line)
+        checks: set[str] = set()
+        for commands in ([s for s, _ in pairs], [d or s for s, d in pairs]):
+            programs = set()
+            for command in commands:
+                argv, _assignments = _strip_wrappers(command.argv)
+                if argv:
+                    programs.add(_program(argv[0]))
+            if "python" in programs:
+                checks.add("python")
+            elif programs & _INTERPRETERS:
+                checks.add("names")
+        hit = None
+        if "python" in checks:
             hit = _judge_code(body, owned, surface, env, cwd)
-        elif programs & _INTERPRETERS:
+        if hit is None and "names" in checks:
             hit = _code_names_path(body, owned, env, cwd)
-        else:
-            continue
         if hit is not None:
             return hit
     return None
@@ -184,7 +210,14 @@ def _one_command(
     depth: int,
     known_program: bool = False,
     plain: tuple[str, ...] | None = None,
+    checks_only: bool = False,
 ) -> GuardrailHit | None:
+    """The first guardrail change ``command`` makes.
+
+    ``checks_only`` judges what the command names (its program, rules, flags,
+    paths and redirects, and a command it starts) without entering a script
+    or program text it carries.
+    """
     prepared, assignments = _strip_wrappers(command.argv)
     prepared = _invocation(prepared, surface)
     program = _program(prepared[0]) if prepared else ""
@@ -231,6 +264,11 @@ def _one_command(
     hit = _mutation(acted, command.redirects, owned, env, cwd)
     if hit is not None or depth >= 3:
         return hit
+    if checks_only:
+        if program in _TEXT_ONLY or program in _READERS:
+            return None
+        # At the depth limit, the started command is judged without its scripts.
+        return _started(prepared, owned, surface, rules, env, cwd, 3)
     found: GuardrailHit | None = None
     if program == "python":
         script = _c_argument(prepared)
@@ -384,7 +422,7 @@ def _nested(
     cwd: str,
     depth: int,
 ) -> GuardrailHit | None:
-    return _each_command(_parse(script), owned, surface, rules, env, cwd, depth=depth + 1)
+    return _each_command(_spelled(script), owned, surface, rules, env, cwd, depth=depth + 1)
 
 
 def _native(
