@@ -45,6 +45,14 @@ All notable changes to Petasos are documented here. Format follows [Keep a Chang
   as plugin changes. Bare `hermes plugins` is also a change because its
   interactive menu can rewrite the enabled and disabled plugin lists;
   help and read-only verbs remain available.
+- On Hermes v0.23.3, Tool Search calls are judged as their underlying tools;
+  repeated matching hooks reuse a proceeding decision without asking or
+  scoring again. Catalog search and describe calls are read-only.
+- Follow Hermes's human-only routing for unread and manual-only commands,
+  and report when Hermes will refuse an unread command.
+- Leave simple approval-policy writes to Hermes's fresh manual prompt while
+  retaining Petasos's guardrail event and risk score. Standing permissions,
+  smart approval and other guardrail changes keep Petasos's own approval.
 
 - The guardrail recogniser flags everything the 0.5.0 guard flags. It reads
   every command of a tool call rather than the first 64 commands and

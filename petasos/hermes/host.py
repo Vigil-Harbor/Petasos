@@ -17,7 +17,7 @@ _MODES = frozenset({"off", "smart", "manual"})
 
 #: How Hermes's guardian model is named to an operator.
 GUARDIAN_NAME = "Hermes's smart approval"
-# Platforms Hermes treats as an unattended session. Checked against v0.23.1.
+# Platforms and private approval probes checked against v0.23.3 (caafe538).
 _UNATTENDED_PLATFORMS = frozenset({"api_server", "webhook"})
 
 
@@ -200,8 +200,9 @@ def approval_grant() -> ApprovalGrant:
 def command_judge(command: str) -> CommandJudge:
     """Who Hermes will put this terminal command to before it runs.
 
-    Manual mode uses a person; smart uses the guardian then a person if
-    needed. A missing or raising helper, a command Hermes does not flag, or
+    Manual mode uses a person; smart uses the guardian except human-only
+    findings. Unread commands require a person or are refused.
+    A missing or raising helper, a command Hermes does not flag, or
     a gate that would settle without a person available answers nobody.
     """
     if not isinstance(command, str) or command == "":
@@ -221,7 +222,9 @@ def _command_judge(command: str) -> CommandJudge:
     if not callable(detect):
         return CommandJudge.NOBODY
     flagged = detect(command)
-    if not (isinstance(flagged, tuple) and flagged and flagged[0] is True):
+    unread_fn = getattr(detection, "hardline_scan_incomplete", None)
+    unread = bool(unread_fn(command)) if callable(unread_fn) else False
+    if not unread and not (isinstance(flagged, tuple) and flagged and flagged[0] is True):
         return CommandJudge.NOBODY
     env_type, host_access = _terminal_backend()
     skip = getattr(approval, "_should_skip_container_guards", None)
@@ -235,14 +238,18 @@ def _command_judge(command: str) -> CommandJudge:
     if not callable(mode):
         return CommandJudge.NOBODY
     approval_mode = mode()
+    yolo = getattr(approval, "_yolo_active", None)
+    if not callable(yolo):
+        return CommandJudge.NOBODY
+    bypass = yolo() or approval_mode == "off"
+    if bypass:
+        return CommandJudge.REFUSED if unread else CommandJudge.NOBODY
     if approval_mode not in ("manual", "smart"):
         return CommandJudge.NOBODY
-    yolo = getattr(approval, "_yolo_active", None)
-    if not callable(yolo) or yolo():
-        return CommandJudge.NOBODY
-    allowlisted = getattr(approval, "_command_matches_permanent_allowlist", None)
-    if not callable(allowlisted) or allowlisted(command):
-        return CommandJudge.NOBODY
+    if not unread:
+        allowlisted = getattr(approval, "_command_matches_permanent_allowlist", None)
+        if not callable(allowlisted) or allowlisted(command):
+            return CommandJudge.NOBODY
     presence = getattr(approval, "_presence", None)
     if not callable(presence):
         return CommandJudge.NOBODY
@@ -250,10 +257,61 @@ def _command_judge(command: str) -> CommandJudge:
     if not isinstance(present, tuple) or len(present) < 4:
         return CommandJudge.NOBODY
     if not (present[1] or present[2] or present[3]):
+        return CommandJudge.REFUSED if unread else CommandJudge.NOBODY
+    if unread:
+        return CommandJudge.PERSON
+    pending_keys = _pending_command_keys(approval, command)
+    if not pending_keys:
         return CommandJudge.NOBODY
-    if _already_covered(approval, command):
-        return CommandJudge.NOBODY
+    manual_only = getattr(detection, "SMART_MANUAL_ONLY_DESCRIPTIONS", None)
+    if manual_only is not None and any(key in manual_only for key in pending_keys):
+        return CommandJudge.PERSON
     return CommandJudge.PERSON if approval_mode == "manual" else CommandJudge.GUARDIAN
+
+
+def approval_policy_command(command: str) -> bool:
+    """Hermes itself flags an approval-settings write, on hosts that know it."""
+    try:
+        detection = load_module("tools.approval_detection")
+        detect = getattr(detection, "detect_dangerous_command", None)
+        if not callable(detect):
+            return False
+        flagged = detect(command)
+        return (
+            isinstance(flagged, tuple)
+            and len(flagged) >= 3
+            and flagged[0] is True
+            and flagged[2] == "hermes config set approval settings"
+        )
+    except Exception:
+        return False
+
+
+def resolve_tool_call(tool: object, args: object) -> tuple[object, object]:
+    """Unwrap Tool Search using Hermes's parser; unresolved wrappers stay closed.
+
+    Session catalog restriction and schema validation still belong to Hermes's
+    dispatch. Resolution here grants no access to a tool outside that catalog.
+    """
+    if tool != "tool_call" or not isinstance(args, dict):
+        return tool, args
+    try:
+        module = load_module("tools.tool_search")
+        resolve = getattr(module, "resolve_underlying_call", None)
+        if callable(resolve):
+            name, underlying, error = resolve(dict(args))
+            sentinel = getattr(module, "CONNECTOR_BATCH_SENTINEL", None)
+            if (
+                isinstance(name, str)
+                and name
+                and name != sentinel
+                and isinstance(underlying, dict)
+                and not error
+            ):
+                return name, dict(underlying)
+    except Exception:
+        pass
+    return tool, args
 
 
 def _terminal_backend() -> tuple[str, bool]:
@@ -274,30 +332,35 @@ def _terminal_backend() -> tuple[str, bool]:
     return env_type, bool(access_fn(config))
 
 
-def _already_covered(approval: object, command: str) -> bool:
-    """True when Hermes would approve the command from an earlier answer.
+def _pending_command_keys(approval: object, command: str) -> tuple[str, ...]:
+    """Findings Hermes still needs consent for, from one scope snapshot.
 
-    A missing helper answers yes, so the caller does not stand aside.
+    Missing or malformed helpers answer empty, keeping the decision here.
     """
     findings_fn = getattr(approval, "_command_findings", None)
     pending_fn = getattr(approval, "_pending_findings", None)
     scope_fn = getattr(approval, "_approval_scope", None)
     session_fn = getattr(approval, "get_current_session_key", None)
     if not callable(findings_fn) or not callable(pending_fn):
-        return True
+        return ()
     if not callable(scope_fn) or not callable(session_fn):
-        return True
+        return ()
     findings = findings_fn(command)
     if not isinstance(findings, list):
-        return True
+        return ()
     session_key = session_fn()
     scopes: dict[str, object] = {}
     for item in findings:
         if not isinstance(item, tuple) or not item or not isinstance(item[0], str):
-            return True
+            return ()
         scopes[item[0]] = scope_fn(session_key, item[0])
     pending = pending_fn(findings, lambda key: scopes.get(key) is not None)
-    return pending is None
+    if not isinstance(pending, tuple) or not pending or not isinstance(pending[0], list):
+        return ()
+    keys = pending[0]
+    if not all(isinstance(key, str) for key in keys):
+        return ()
+    return tuple(keys)
 
 
 def rule_always_approved(rule_key: str) -> bool:

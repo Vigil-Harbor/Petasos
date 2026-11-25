@@ -113,6 +113,7 @@ def _emit(core: Core, phase: str, notice: ApprovalNotice, choice: object) -> Non
 def approval_requested(core: Core, notice: ApprovalNotice) -> None:
     """Record an approval request. The choice is always empty."""
     core.observe(announce=False)
+    core.replays.request(notice)
     _emit(core, "request", notice, None)
 
 
@@ -127,6 +128,7 @@ def approval_answered(core: Core, notice: ApprovalNotice) -> None:
             )
     except Exception as exc:
         logger.debug("PETASOS_DEGRADED_PENDING apply failed error=%r", exc)
+    core.replays.answer(notice)
     try:
         note_answer(core, notice)
     except Exception as exc:

@@ -636,3 +636,18 @@ def test_mixed_checker_and_guardian_findings_need_both_owners(tier: str | None) 
     else:
         assert isinstance(decision, Approve)
         assert events == []
+
+
+@pytest.mark.parametrize("tier", ["none", "tier1", None])
+@pytest.mark.parametrize("yolo", [False, True])
+def test_host_refusal_stands_aside_without_a_petasos_ask(tier: str | None, yolo: bool) -> None:
+    decision, _logs, events = _decide(
+        _guard(_finding("petasos.syntactic.command.fetch-exec")),
+        posture="approve",
+        approve=True,
+        judge=CommandJudge.REFUSED,
+        tier=tier,
+        yolo=yolo,
+    )
+    assert decision is None
+    assert events[0]["host_refuses"] is True

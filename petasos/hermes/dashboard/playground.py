@@ -504,6 +504,7 @@ async def _tool(
         logger.warning("playground tool check exceeded %ss", time_budget)
     findings: tuple[ScanFinding, ...] = ()
     deferred_to: str | None = None
+    host_refuses = False
     decision = "allow"
     message = ""
     if timed_out:
@@ -570,6 +571,7 @@ async def _tool(
             elif deferred is not None:
                 decision = "allow"
                 deferred_to = str(deferred["deferred_to"])
+                host_refuses = deferred.get("host_refuses") is True
             elif isinstance(chosen, Approve):
                 decision = "approve"
                 message = chosen.message
@@ -590,9 +592,11 @@ async def _tool(
     if deferred_to is not None:
         body["outcome"] = {
             "code": "allow",
-            "label": f"Left for {deferred_to}",
+            "label": f"{deferred_to} will refuse" if host_refuses else f"Left for {deferred_to}",
             "sentence": (
-                f"Petasos would leave shell command checks to {deferred_to}. "
+                f"{deferred_to} will refuse this unread command."
+                if host_refuses
+                else f"Petasos would leave shell command checks to {deferred_to}. "
                 "The command still has to pass those checks."
             ),
         }

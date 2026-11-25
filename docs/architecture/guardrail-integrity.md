@@ -93,6 +93,39 @@ must be fresh and must come from a person:
 - **Nobody there, no change.** If there is no one to ask, the call is
   blocked.
 
+### One fresh Hermes prompt for approval-policy commands
+
+On Hermes v0.23.3, with `tools.self_change: approve`, Petasos leaves the
+approval-policy ask to Hermes when the entire terminal text is one simple
+command, Hermes's detector reports `hermes config set approval settings`,
+and the command judge says `PERSON`. Separators, pipelines, substitutions,
+redirects, non-terminal tools and other guardrail keys keep Petasos's ask.
+`never` still blocks. A missing detector or pattern on v0.23.1 keeps the ask
+in Petasos too.
+
+This handoff still records the guardrail event and raises the session's score.
+It starts no Petasos `self_change_minutes` grant. The approval stays **fresh,
+from a person**: a permanent allowlist entry, a Hermes session grant or an
+always grant that would skip Hermes's prompt makes the judge stop returning
+`PERSON`. Petasos then asks again, with its normal fresh guardrail rule key.
+Approvals off, yolo, nobody present and guardian approval cannot satisfy this
+handoff.
+
+Residual: under smart mode Petasos still asks itself for an approval-policy
+change, and Hermes's guardian can then escalate to a second prompt. This
+preserves human consent when the guardian alone could approve the change.
+
+Repeated hooks for the same call do not constitute a new permission. The
+enforcer remembers first-fire decisions for at most five minutes and 1,024
+calls, keyed by its session key, host session, turn, call id, canonical tool
+name and argument digest. Turn and call ids must both be nonempty. Only a
+first allow, or a first ask with its matching fresh human request and consent,
+can permit replay without scanning or scoring again. A block cannot become
+a replay allowance. Changed arguments (including request middleware changes)
+or identities, missing ids, expired or evicted records all require a fresh
+decision. Tool Search is resolved through Hermes's parser before this check;
+an unresolved wrapper keeps ordinary fail-closed enforcement.
+
 ### `never`
 
 Every agent-originated change to a guardrail is blocked. Each attempt is an

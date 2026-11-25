@@ -52,6 +52,24 @@ def _derive(
 
 _TOOL_AXES_ROWS: tuple[tuple[str, ToolAxes], ...] = (
     (
+        "tool_search",
+        ToolAxes(
+            acts=False,
+            ingests=True,
+            reaches_hook=True,
+            evidence="hermes tools/tool_search.py::dispatch_tool_search",
+        ),
+    ),
+    (
+        "tool_describe",
+        ToolAxes(
+            acts=False,
+            ingests=True,
+            reaches_hook=True,
+            evidence="hermes tools/tool_search.py::dispatch_tool_describe",
+        ),
+    ),
+    (
         "read_file",
         ToolAxes(
             acts=False,

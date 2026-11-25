@@ -297,6 +297,11 @@ def describe_event(
         return "Could not check a tool result, and passed it on unmarked."
     if kind == "deferred":
         owner = _text(event.get("deferred_to"))
+        if event.get("host_refuses") is True:
+            return (
+                f"{owner or 'Hermes'} will refuse this unread command. "
+                "Petasos recorded the command finding."
+            )
         if owner == GUARDIAN_NAME:
             return f"{GUARDIAN_NAME} will judge this. Petasos recorded the command finding."
         return (
@@ -341,6 +346,8 @@ def _guardrail_outcome(event: Mapping[str, object]) -> dict[str, str]:
         return {"code": "declined", "label": "Person said no"}
     if name in _GUARDRAIL_BLOCKED:
         return {"code": "blocked", "label": "Blocked"}
+    if name == "deferred":
+        return {"code": "deferred", "label": "Left for Hermes"}
     if name == "held":
         return {"code": "asked", "label": "Asked a person"}
     if name in {"covered", "session", "once"}:
@@ -363,6 +370,8 @@ def _guardrail_sentence(event: Mapping[str, object]) -> str:
             "Blocked an attempt to change Petasos or Hermes settings. "
             "Nobody could be asked to approve it."
         )
+    if name == "deferred":
+        return "Left this approval-policy change to Hermes to ask a person before it runs."
     if name == "held":
         return "Asked a person before changing Petasos or Hermes settings."
     if name == "denied":

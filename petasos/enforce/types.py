@@ -144,11 +144,12 @@ def _never_approved(_rule_key: str) -> bool:
 
 
 class CommandJudge(StrEnum):
-    """Who will judge a flagged command before the host runs it."""
+    """Who will judge a command, or that the host will refuse it unread."""
 
     NOBODY = "nobody"
     PERSON = "person"
     GUARDIAN = "guardian_then_person"
+    REFUSED = "refused"
 
 
 def _no_command_judge(_command: str) -> CommandJudge:
@@ -181,8 +182,8 @@ class HostInfo:
 
     Callables are read on each decision, so a live host change is visible
     without a settings token change. ``command_judge`` names a person, a
-    guardian followed by a person if needed, or nobody. The default answers
-    nobody. ``command_checker`` names a loaded checker that owns pipe,
+    guardian followed by a person if needed, a host refusal, or nobody.
+    The default answers nobody. ``command_checker`` names a loaded checker that owns pipe,
     decode and fetch execution in terminal command text. It defaults to none.
     ``command_prompt_name`` and ``command_guardian_name`` name the host
     approval prompt and guardian for display.
@@ -197,6 +198,8 @@ class HostInfo:
     rule_always_approved: Callable[[str], bool] = _never_approved
     command_judge: Callable[[str], CommandJudge] = _no_command_judge
     command_checker: Callable[[], str | None] = _no_command_checker
+    # Whether the host detector itself owns an approval-policy write.
+    approval_policy_command: Callable[[str], bool] = _never_approved
     command_prompt_name: str = "the host"
     command_guardian_name: str = "the host guardian"
     subagent_hooks: bool = True

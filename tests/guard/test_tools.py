@@ -38,6 +38,8 @@ _EXPECTED_READ_ONLY = (
     "read_file",
     "search_files",
     "session_search",
+    "tool_describe",
+    "tool_search",
     "vision_analyze",
     "web_extract",
     "web_search",
@@ -58,6 +60,8 @@ _EXPECTED_INGESTION = (
     "browser_vision",
     "read_file",
     "search_files",
+    "tool_describe",
+    "tool_search",
     "vision_analyze",
     "web_extract",
     "web_search",
@@ -158,13 +162,15 @@ def test_phantom_names_are_gone() -> None:
 def test_published_counts() -> None:
     mcp_rows = {n for n in _TOOL_AXES if n.startswith("mcp_")}
     browser_rows = {n for n in _TOOL_AXES if n.startswith("browser_")}
-    assert len(_TOOL_AXES) == 37
-    assert len(READ_ONLY_TOOLS) == 16
-    assert len(INGESTION_TOOLS) == 17
+    assert len(_TOOL_AXES) == 39
+    assert len(READ_ONLY_TOOLS) == 18
+    assert len(INGESTION_TOOLS) == 19
     assert len(NON_INGESTING_TOOLS) == 8
-    assert sum(1 for a in _TOOL_AXES.values() if a.ingests) == 29
+    assert sum(1 for a in _TOOL_AXES.values() if a.ingests) == 31
     assert INGESTION_TOOLS - mcp_rows - browser_rows - {"search_files"} == {
         "read_file",
+        "tool_describe",
+        "tool_search",
         "vision_analyze",
         "web_extract",
         "web_search",
@@ -182,7 +188,7 @@ def test_table_is_immutable_and_has_no_duplicate_keys() -> None:
                 ("a", ToolAxes(False, True, True, "hermes x::y")),
             )
         )
-    assert len(_TOOL_AXES_ROWS) == len(_TOOL_AXES) == 37
+    assert len(_TOOL_AXES_ROWS) == len(_TOOL_AXES) == 39
 
 
 def test_full_membership_is_pinned() -> None:

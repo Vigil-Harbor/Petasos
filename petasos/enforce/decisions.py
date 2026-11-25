@@ -307,34 +307,38 @@ def dangerous_tool_decision(
         top = worst(remaining)
         command_text = _command_text(args)
         owners: list[str] = []
+        host_refuses = False
         if (
             posture == "approve"
-            and not yolo
             and not result.param_scan_degraded
             and canonicalize_tool_name(tool_name) == "terminal"
             and command_text
         ):
-            checker = _checker_name(command_checker)
+            judge = _host_judge(command_text, command_judge)
+            checker = _checker_name(command_checker) if not yolo else None
             unowned = remaining
             if checker is not None:
                 unowned = [f for f in remaining if f.rule_id not in CHECKER_COMMAND_RULES]
                 if len(unowned) < len(remaining):
                     owners.append(checker)
-            if unowned:
-                judge = _host_judge(command_text, command_judge)
-                if judge is CommandJudge.PERSON:
+            if judge is CommandJudge.REFUSED:
+                owners = [command_prompt_name]
+                host_refuses = True
+            elif unowned:
+                if judge is CommandJudge.PERSON and not yolo:
                     owners.append(command_prompt_name)
-                elif judge is CommandJudge.GUARDIAN and tier == "none":
+                elif judge is CommandJudge.GUARDIAN and tier == "none" and not yolo:
                     owners.append(command_guardian_name)
                 else:
                     owners.clear()
         if owners:
             logger.info(
-                "PETASOS_DEFER tool=%s session=%s rule_id=%s deferred_to=%s",
+                "PETASOS_DEFER tool=%s session=%s rule_id=%s deferred_to=%s outcome=%s",
                 tool_name,
                 session_id,
                 top.rule_id,
                 " and ".join(owners),
+                "host will refuse" if host_refuses else "host will judge",
             )
             emit(
                 session_id=session_id,
@@ -345,7 +349,12 @@ def dangerous_tool_decision(
                 tier=tier,
                 severity=top.severity.name,
                 rule_id=top.rule_id,
-                reason=top.message,
+                reason=(
+                    f"{command_prompt_name} will refuse this command"
+                    if host_refuses
+                    else top.message
+                ),
+                **({"host_refuses": True} if host_refuses else {}),
             )
             return None
         if approve_effective:
