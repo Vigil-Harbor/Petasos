@@ -20,6 +20,7 @@ from petasos.hermes.guardrail import hermes_surface
 
 if TYPE_CHECKING:
     from pathlib import Path
+    from typing import SupportsIndex
 
     from petasos.guard.surface import GuardrailHit, GuardrailSurface
 
@@ -1365,7 +1366,7 @@ def test_a_very_long_text_is_not_split_for_the_plain_check() -> None:
         def strip(self, chars: str | None = None) -> str:
             return _NoSplit(str.strip(self, chars))
 
-        def split(self, sep: str | None = None, maxsplit: int = -1) -> list[str]:
+        def split(self, sep: str | None = None, maxsplit: SupportsIndex = -1) -> list[str]:
             raise AssertionError("split called on long text")
 
     long_text = _NoSplit("hermes plugins enable petasos " + "y " * 5000)
