@@ -1,0 +1,6 @@
+[project]
+name = "petasos-hermes-plugin"
+version = "0.5.0"
+description = "Hermes directory plugin for Petasos. Behaviour lives in the petasos wheel."
+requires-python = ">=3.11"
+dependencies = ["petasos>=0.5,<0.6"]

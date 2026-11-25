@@ -1,4 +1,4 @@
-"""Pinned S7 fixtures, case plan and fail-closed measurement accounting."""
+"""Validate pinned fixtures and reject incomplete benchmark evidence."""
 
 from __future__ import annotations
 
@@ -18,7 +18,6 @@ CRITERIA = "S7-2026-11-08-v3"
 # Loaded p95 may be at most this multiple of the same run's serial mean for the
 # same fixture. Eight requests over two slots is four rounds (ideal 4.0x).
 LOADED_RATIO = 6.5
-# The runtime's default per-request deadline, applied to every loaded sample.
 LOADED_MAX_SECONDS = 8.0
 # Serial single 16 KiB limits. Hosted Windows runners varied 1.3x run to run.
 SINGLE_16K_LIMITS = {"mean": 1.0, "p95": 1.2, "p99": 1.4}
@@ -27,6 +26,7 @@ SERIAL_64K_LIMITS = {"mean": 1.8, "p95": 2.0, "p99": 2.3}
 
 
 def summary(values: list[float]) -> dict[str, float | int]:
+    """Return run count and latency statistics, including the observed maximum."""
     if not values:
         return {"runs": 0}
     ordered = sorted(values)
@@ -40,6 +40,7 @@ def summary(values: list[float]) -> dict[str, float | int]:
 
 
 def fixtures() -> tuple[dict[str, Any], dict[str, Any]]:
+    """Return benchmark fixtures only when manifest and payload digests match."""
     raw = Path(__file__).with_name("semgrep_workloads_v3.json").read_bytes()
     if hashlib.sha256(raw).hexdigest() != MANIFEST_SHA256:
         raise ValueError("fixture_manifest_digest")
@@ -58,6 +59,7 @@ def fixtures() -> tuple[dict[str, Any], dict[str, Any]]:
 
 
 def case_plan(runs: int) -> list[dict[str, Any]]:
+    """Return serial, loaded and replacement cases for at least one hundred runs."""
     if runs < 100:
         raise ValueError("qualification requires at least 100 runs")
     bursts = math.ceil(runs / 8)
@@ -150,6 +152,7 @@ def result_evidence(result: Any, fixture: dict[str, Any]) -> dict[str, Any]:
 
 
 def finish_case(case: dict[str, Any]) -> None:
+    """Record case completeness and evaluate its required measurement limits."""
     samples = [s for s in case["samples"] if not s["warmup"]]
     success = [s["seconds"] for s in samples if s.get("status") == "ok"]
     errors = [s["seconds"] for s in samples if s.get("status") == "error"]
@@ -197,6 +200,7 @@ def _limits(case: dict[str, Any], records: dict[str, Any]) -> dict[str, float]:
 
 
 def gate_failures(records: dict[str, Any]) -> list[str]:
+    """Return every violated qualification requirement in the measurement record."""
     failures = []
     for case in records["workloads"].values():
         finish_case(case)

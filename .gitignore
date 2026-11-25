@@ -69,3 +69,6 @@ docs/console/*.zip
 
 # Per-ticket presync backups - local safety nets, never committed
 *-presync-bak/
+
+# Reference screenshots for interface work. Third-party images; never committed.
+.ux-reference/

@@ -74,8 +74,8 @@ def _labels(lines: list[str], failed: bool, error: str | None) -> set[str]:
 
 
 async def _run(iterations: int) -> tuple[dict[str, int], str, tuple[str, ...]]:
-    from petasos.scanners._semgrep_runtime import SemgrepCleanupError
     from petasos.scanners.semgrep import SemgrepLifecycleOwner
+    from petasos.scanners.semgrep.runtime import SemgrepCleanupError
 
     counts = {"clean": 0, "cleanup_failed": 0, "recovered": 0, "expired": 0}
     owner = SemgrepLifecycleOwner()
@@ -134,6 +134,7 @@ async def _iterate(owner: Any, iterations: int, counts: dict[str, int]) -> None:
 
 
 def main() -> None:
+    """Run owned cleanup stress cases and report their closure evidence."""
     args = _parse()
     if "HERMES_HOME" not in os.environ:
         os.environ["HERMES_HOME"] = tempfile.mkdtemp(prefix="pet255-hermes-")

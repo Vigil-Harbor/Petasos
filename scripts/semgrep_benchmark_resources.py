@@ -15,6 +15,8 @@ if TYPE_CHECKING:
 
 
 class Resources:
+    """Observe benchmark resources without changing child ownership or limits."""
+
     def __init__(self, runtime: Any) -> None:
         import psutil
 
@@ -46,15 +48,18 @@ class Resources:
         self.probe_pending = threading.Event()
 
     def missing(self, field: str) -> None:
+        """Record a missing measurement field once under the observer lock."""
         with self.lock:
             if field not in self.data["missing"]:
                 self.data["missing"].append(field)
 
     def peak(self, field: str, value: int | float) -> None:
+        """Retain the largest observed value for a measurement field."""
         with self.lock:
             self.data[field] = max(self.data[field], value)
 
     def parent_counts(self) -> dict[str, int] | None:
+        """Return parent handle and thread counts, or record missing evidence."""
         try:
             return {
                 "handles_or_fds": self.parent.num_handles()
@@ -67,9 +72,10 @@ class Resources:
             return None
 
     def install(self, stack: ExitStack) -> None:
-        from petasos.scanners import _semgrep_process as process
-        from petasos.scanners import _semgrep_runtime as runtime
-        from petasos.scanners._semgrep_source import MapBudget
+        """Install resource observations in the supplied patch stack."""
+        from petasos.scanners.semgrep import process as process
+        from petasos.scanners.semgrep import runtime as runtime
+        from petasos.scanners.semgrep.source import MapBudget
 
         new_root = runtime.Runtime._new_root
         charge = MapBudget.charge
@@ -178,6 +184,7 @@ class Resources:
             self.stop.wait(0.1)
 
     def finish(self) -> dict[str, Any]:
+        """Stop observation and return resource evidence with missing fields marked."""
         self.stop.set()
         self.thread.join(timeout=2)
         if self.thread.is_alive():

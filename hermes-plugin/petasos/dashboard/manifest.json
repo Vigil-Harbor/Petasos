@@ -1,0 +1,13 @@
+{
+  "name": "petasos",
+  "label": "Petasos",
+  "description": "Content security for Hermes agent tool calls and tool results.",
+  "icon": "Shield",
+  "version": "0.5.0",
+  "tab": {
+    "path": "/petasos",
+    "position": "after:skills"
+  },
+  "entry": "index.js",
+  "api": "plugin_api.py"
+}

@@ -1,22 +1,18 @@
+"""Provide isolated homes, asyncio execution and backend qualification fixtures."""
+
 from __future__ import annotations
 
 import importlib
 import os
-import pathlib
 import sys
 import types
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING
 
-import jwt as pyjwt
 import pytest
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
-
-_FIXTURES = pathlib.Path(__file__).parent / "fixtures"
-_PRIVATE_KEY = (_FIXTURES / "test_private.pem").read_bytes()
 
 
 @pytest.fixture
@@ -31,125 +27,57 @@ def identity_redactor(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setitem(sys.modules, "agent.redact", redactor)
 
 
-def _make_token(
-    *,
-    tier: str = "pro",
-    customer_id: str = "cust-test",
-    features: list[str] | None = None,
-    exp_delta: timedelta = timedelta(hours=1),
-    iat_delta: timedelta = timedelta(seconds=0),
-    extra_claims: dict[str, object] | None = None,
-    algorithm: str = "EdDSA",
-    key: bytes | None = None,
-) -> str:
-    now = datetime.now(tz=timezone.utc)
-    payload: dict[str, object] = {
-        "sub": "petasos-license",
-        "exp": now + exp_delta,
-        "iat": now + iat_delta,
-        "tier": tier,
-        "customer_id": customer_id,
-        "features": features or [],
-    }
-    if extra_claims:
-        payload.update(extra_claims)
-    return pyjwt.encode(payload, key or _PRIVATE_KEY, algorithm=algorithm)
+@pytest.fixture(autouse=True)
+def _isolate_account_home(
+    tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Give every test a throwaway home directory.
+
+    A guard built without its own paths finds the Hermes home from the
+    account's home directory. Under the real one that reads the profile
+    pointer and lists the profiles of whatever Hermes is installed for this
+    account. No test may depend on that installation, or look at it.
+
+    Model caches are found through the home too, so the cache a real-backend
+    test needs is named before the home changes.
+    """
+    if not os.environ.get("HF_HOME"):
+        cache = os.path.join(os.path.expanduser("~"), ".cache", "huggingface")
+        monkeypatch.setenv("HF_HOME", cache)
+    home = tmp_path_factory.mktemp("home")
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
+    if os.environ.get("LOCALAPPDATA"):
+        monkeypatch.setenv("LOCALAPPDATA", str(home / "AppData" / "Local"))
 
 
 @pytest.fixture(autouse=True)
 def _isolate_enforcement_spool(tmp_path_factory: pytest.TempPathFactory) -> Iterator[None]:
-    """PET-131: redirect the cross-process enforcement spool to a throwaway temp path
-    for every test.
+    """Point the module-level spool writer at a throwaway file for every test.
 
-    The dashboard now drains this spool on ``get_scan_history`` and the gateway
-    ``_pre_tool_call`` block branches append to it, so without isolation a test could
-    read the real machine spool (``%LOCALAPPDATA%/hermes/petasos-enforcement.jsonl``)
-    or pollute it. Tests that inspect the spool read ``_events._spool_path()``, which
-    returns this per-test path. A no-op if the console module is unimportable.
+    The console used to install the resolver on import. Tests that still call
+    ``emit_enforcement_event`` without a path must not touch a real Hermes home.
     """
-    try:
-        import petasos.console._events as _ev
-        import petasos.console._paths as _paths
-    except Exception:
-        yield
-        return
-    saved_override = _paths._SPOOL_PATH_OVERRIDE
-    saved_cap = _ev.SPOOL_CAP_BYTES
-    _ev._reset_events_state(str(tmp_path_factory.mktemp("enf_spool") / "enf.jsonl"))
-    try:
-        yield
-    finally:
-        _paths._SPOOL_PATH_OVERRIDE = saved_override
-        _ev.SPOOL_CAP_BYTES = saved_cap
+    import petasos.enforce.events as events
+    import petasos.hermes.home as paths
 
+    def _set_override(path: str | None) -> None:
+        paths._SPOOL_PATH_OVERRIDE = path
 
-@pytest.fixture(autouse=True)
-def _isolate_history_sink(tmp_path_factory: pytest.TempPathFactory) -> Iterator[None]:
-    """PET-148: redirect the persistent scan-history sink to a throwaway temp path for
-    every test (mirrors ``_isolate_enforcement_spool``).
-
-    ``ConsoleHandlers._record_scan`` now appends every recorded scan to this on-disk sink,
-    so without isolation a test would write to the real machine state dir
-    (``%LOCALAPPDATA%/hermes/petasos-scan-history.jsonl``) or read it back. Tests that
-    inspect the sink read ``_history._history_path()``, which returns this per-test path.
-    A no-op if the console module is unimportable.
-    """
-    try:
-        import petasos.console._history as _hist
-    except Exception:
-        yield
-        return
-    saved_override = _hist._HISTORY_PATH_OVERRIDE
-    saved_cap = _hist._HISTORY_CAP_BYTES
-    _hist._reset_history_state(str(tmp_path_factory.mktemp("hist_sink") / "hist.jsonl"))
+    events.install_spool_resolver(paths.spool_path, _set_override)
+    saved_override = paths._SPOOL_PATH_OVERRIDE
+    saved_cap = events.SPOOL_CAP_BYTES
+    events._reset_events_state(str(tmp_path_factory.mktemp("enf_spool") / "enf.jsonl"))
     try:
         yield
     finally:
-        _hist._HISTORY_PATH_OVERRIDE = saved_override
-        _hist._HISTORY_CAP_BYTES = saved_cap
-
-
-@pytest.fixture(autouse=True)
-def _isolate_reviewed_file(tmp_path_factory: pytest.TempPathFactory) -> Iterator[None]:
-    """PET-223: point the reviewed-id file at a throwaway path for every test."""
-    try:
-        import petasos.console._approvals as _reviewed
-    except Exception:
-        yield
-        return
-    saved = _reviewed._REVIEWED_PATH_OVERRIDE
-    path = tmp_path_factory.mktemp("reviewed") / "petasos-approvals-reviewed.json"
-    _reviewed._REVIEWED_PATH_OVERRIDE = str(path)
-    try:
-        yield
-    finally:
-        _reviewed._REVIEWED_PATH_OVERRIDE = saved
-
-
-@pytest.fixture()
-def valid_token() -> str:
-    return _make_token()
-
-
-@pytest.fixture()
-def expired_token() -> str:
-    return _make_token(exp_delta=timedelta(hours=-1), iat_delta=timedelta(hours=-2))
-
-
-@pytest.fixture()
-def valid_key() -> str:
-    return _make_token()
+        paths._SPOOL_PATH_OVERRIDE = saved_override
+        events.SPOOL_CAP_BYTES = saved_cap
 
 
 @pytest.fixture()
 def anyio_backend() -> str:
-    """PET-149: the single repo-owned async-backend selector under ``anyio_mode =
-    "auto"`` (pyproject ``[tool.pytest.ini_options]``). Overrides anyio's built-in
-    ``anyio_backend`` (module-scoped, parametrized over every available backend) so
-    the suite runs function-scoped on asyncio only: behavior-preserving against the
-    dropped ``asyncio_mode = "auto"``, with no ``[asyncio]`` id suffix and no trio
-    fan-out. It is also the one edit point a future targeted trio parametrization
-    (D-BACKEND) would change."""
+    """Select function-scoped asyncio without backend-id suffixes or trio fan-out."""
     return "asyncio"
 
 
@@ -164,15 +92,7 @@ def _item_class_name(item: pytest.Item) -> str | None:
 
 
 def _would_skip(item: pytest.Item) -> bool:
-    """True if ``item`` carries a decoration-time skip — either a plain
-    ``@pytest.mark.skip`` (unconditional) or a truthy ``@pytest.mark.skipif``.
-
-    A plain ``skip`` is not a ``skipif`` and would otherwise sail past the guard,
-    skipping the target class despite the backend being importable — exactly what
-    a non-skipping lane must catch. Module-level (PET-105 DD) so both lane guards
-    share one definition and cannot drift. A *runtime* ``pytest.skip()`` in a test
-    body is invisible here by design — the target classes must never call it.
-    """
+    """Return whether an item has an unconditional or truthy conditional skip marker."""
     if item.get_closest_marker("skip") is not None:
         return True
     return any(mark.args and bool(mark.args[0]) for mark in item.iter_markers(name="skipif"))
@@ -189,15 +109,7 @@ def _enforce_nonskipping_lane(
 ) -> None:
     """Fail collection loudly if ``lane``'s real-backend class would skip.
 
-    Armed only when ``env_flag`` is ``"1"`` (set in the lane job's ``env`` block);
-    a no-op otherwise, so the default ``ci.yml`` lane and local dev keep their
-    ``@skipif`` self-skip unchanged. When armed: import ``import_target`` (the same
-    symbol the scanner's ``_do_load`` loads — not a top-level ``find_spec``) and
-    assert ``target_class`` is collected unskipped. The three failure shapes
-    (import-failed, target-not-collected, would-skip-despite-importable) mirror the
-    PET-104 guard verbatim, parameterized per lane (PET-105 DD). Each lane is
-    enforced independently — see DD for the both-armed composition.
-    """
+    See docs/architecture/rationale.md, "Async test and CI lane constraints"."""
     if os.environ.get(env_flag) != "1":
         return
 
@@ -230,18 +142,13 @@ def _enforce_nonskipping_lane(
 
 @dataclass(frozen=True)
 class NonSkippingLane:
-    """One scanner backend whose CI lane must run a real-backend class without
-    skipping. PET-106: single source of truth consumed by both the runtime guard
-    below and tests/test_ci_extras_lanes.py. Add a backend = add a row here +
-    add .github/workflows/extras-<extra>.yml (the meta-test enforces the pair).
-    Frozen dataclass per CLAUDE.md § Key Design Invariants 'Frozen exports' and
-    the petasos/_types.py idiom (round-1 conventions F-1)."""
+    """Declare one backend whose real tests must run unskipped in its CI lane."""
 
-    extra: str  # pyproject optional-dependency key, e.g. "presidio"
-    env_flag: str  # CI lane env var, e.g. "PETASOS_REQUIRE_PRESIDIO"
-    import_target: str  # symbol the scanner's _do_load imports
-    target_class: str  # test class the lane must collect unskipped
-    lane: str  # workflow basename, e.g. "extras-presidio"
+    extra: str
+    env_flag: str
+    import_target: str
+    target_class: str
+    lane: str
     prerequisite: Callable[[], None] | None = None
 
 
@@ -251,7 +158,8 @@ def _require_semgrep() -> None:
     import json
     import time
 
-    from petasos.scanners.semgrep import SemgrepLifecycleOwner, SemgrepScanner, supported_platform
+    from petasos.scanners.semgrep import SemgrepLifecycleOwner, SemgrepScanner
+    from petasos.scanners.semgrep.adapter import supported_platform
 
     engine, expected = (
         os.environ.get("SEMGREP_ENGINE_PATH"),
@@ -288,8 +196,8 @@ def _require_semgrep() -> None:
                                 child = failure.child if failure is not None else job.child
                                 cause = failure.__cause__ if failure is not None else None
                                 process = getattr(child, "process", None)
-                                # Read only owned state. Never poll/reap a child,
-                                # stringify exceptions, or include source/argv.
+                                # Observe owned state without reaping children or including source,
+                                # arguments or exception text.
                                 states.append(
                                     {
                                         "native_failure": failure is not None,
@@ -310,8 +218,6 @@ def _require_semgrep() -> None:
 
         asyncio.run(probe())
     except Exception as exc:
-        # Availability errors are fixed diagnostic codes. Do not print arbitrary
-        # exception messages, which can contain local paths or source text.
         import re
 
         code = str(exc)
@@ -348,23 +254,6 @@ NONSKIPPING_LANES: tuple[NonSkippingLane, ...] = (
         else ()
     ),
     NonSkippingLane(
-        "llm-guard",
-        "PETASOS_REQUIRE_LLM_GUARD",
-        "llm_guard.input_scanners",
-        "TestIntegrationWrappedStdio",
-        "extras-llm-guard",
-    ),
-    NonSkippingLane(
-        "llamafirewall",
-        "PETASOS_REQUIRE_LLAMAFIREWALL",
-        "llamafirewall",
-        "TestProbeWeakrefUnderSlotsStdio",
-        "extras-llamafirewall",
-    ),
-    # presidio has two must-run live-detection classes in one lane: PET-106's real
-    # PII scan and PET-109's tightened-default regression. Both need the extra +
-    # spaCy model, so both are armed under the same PETASOS_REQUIRE_PRESIDIO flag.
-    NonSkippingLane(
         "presidio",
         "PETASOS_REQUIRE_PRESIDIO",
         "presidio_analyzer",
@@ -382,11 +271,10 @@ NONSKIPPING_LANES: tuple[NonSkippingLane, ...] = (
         "presidio",
         "PETASOS_REQUIRE_PRESIDIO",
         "presidio_analyzer",
-        "TestProfilePresidioScoping",  # PET-119 profile→Presidio wiring contract
+        "TestProfilePresidioScoping",
         "extras-presidio",
     ),
-    # PET-242: no HF secret on the lane, so the target is a real torch + transformers
-    # forward pass and tokenizer built from config, with no model download.
+    # The lane builds its tokenizer and model from config without a token or model download.
     NonSkippingLane(
         "prompt-guard",
         "PETASOS_REQUIRE_PROMPT_GUARD",
@@ -400,12 +288,9 @@ NONSKIPPING_LANES: tuple[NonSkippingLane, ...] = (
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
     """Collection-time fail-loud guards for the non-skipping extras lanes.
 
-    PET-104 armed the ``extras-llm-guard`` lane; PET-105 added ``extras-llamafirewall``
-    and extracted the shared enforcement body into ``_enforce_nonskipping_lane`` so the
-    structurally-identical guards cannot drift (DD). PET-106 lifts the per-lane
-    arguments into the module-level ``NONSKIPPING_LANES`` table — the single source of
-    truth also consumed by ``tests/test_ci_extras_lanes.py`` — and arms presidio. Adding
-    a backend is one table row plus one ``extras-<extra>.yml`` lane, no new control flow.
+    ``NONSKIPPING_LANES`` is the single source of truth, also consumed by
+    ``tests/test_ci_extras_lanes.py``. Adding a backend is one table row plus one
+    ``extras-<extra>.yml`` lane, with no new control flow.
     Each lane is gated on its own ``PETASOS_REQUIRE_*`` env var, set only in that lane
     job's ``env`` block, so the default ``ci.yml`` lane and local dev keep the existing
     ``@skipif`` self-skip.

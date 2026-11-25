@@ -11,3 +11,8 @@ quote-style = "double"
 # hand-laid out for readability (grouped config examples, aligned comments),
 # so the formatter is scoped to source files only.
 exclude = ["*.md"]
+
+[lint.flake8-type-checking]
+# A config section's annotations are read at runtime to build its schema, so
+# the names they use must be real imports, not TYPE_CHECKING-only ones.
+runtime-evaluated-decorators = ["petasos.config.schema.section"]

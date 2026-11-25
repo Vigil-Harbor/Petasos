@@ -1,3 +1,5 @@
+"""Detect and anonymize personal information through optional Presidio backends."""
+
 from __future__ import annotations
 
 import asyncio
@@ -14,7 +16,7 @@ from typing import TYPE_CHECKING, Any, Literal
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-from petasos._types import (
+from petasos.model import (
     AVAILABILITY_CAUSE_ABSENT,
     AVAILABILITY_CAUSE_LOAD_FAILED,
     AvailabilityCause,
@@ -23,6 +25,7 @@ from petasos._types import (
     ScanFinding,
     ScanResult,
     Severity,
+    severity_rank,
 )
 
 _REQUIRED_PACKAGES: tuple[str, ...] = ("presidio_analyzer", "presidio_anonymizer")
@@ -46,17 +49,7 @@ _SEVERITY_MAP: dict[str, Severity] = {
     "NRP": Severity.MEDIUM,
 }
 
-_SEVERITY_RANK: dict[Severity, int] = {
-    Severity.CRITICAL: 0,
-    Severity.HIGH: 1,
-    Severity.MEDIUM: 2,
-    Severity.LOW: 3,
-    Severity.INFO: 4,
-}
-
-# PET-109: the security-relevant default detection set (the CRITICAL/HIGH band
-# of _SEVERITY_MAP). spaCy-NER (PERSON/LOCATION) and loose pattern (URL/DATE_TIME/
-# NRP) recognizers are noisy on technical text and are opt-in, not default.
+# Technical-text recognizers are noisy and opt-in; defaults use the HIGH/CRITICAL band.
 DEFAULT_PRESIDIO_ENTITIES: tuple[str, ...] = (
     "CREDIT_CARD",
     "IBAN_CODE",
@@ -71,13 +64,7 @@ DEFAULT_PRESIDIO_ENTITIES: tuple[str, ...] = (
 )
 NOISY_OPT_IN_ENTITIES: tuple[str, ...] = ("PERSON", "LOCATION", "DATE_TIME", "NRP", "URL")
 
-# PET-117: petasos-curated set of Presidio recognizer names this package has a
-# severity mapping or default/opt-in band for. The profile parser validates
-# pii_entities_extra against this set WITHOUT importing presidio_analyzer (every
-# Presidio import in this module is deferred), preserving the zero-dep base
-# install. This is petasos's known vocabulary, not Presidio's full recognizer
-# registry — an uncurated-but-real recognizer name is intentionally treated as
-# "unknown" (it would fall to Severity.LOW and is outside every curated band).
+# See docs/architecture/rationale.md, "Presidio entity vocabulary".
 KNOWN_PII_ENTITIES: frozenset[str] = (
     frozenset(_SEVERITY_MAP)
     | frozenset(DEFAULT_PRESIDIO_ENTITIES)
@@ -150,6 +137,8 @@ def _make_hmac_operator_class() -> type:
 
 
 class PresidioScanner:
+    """Detect configured personal-information entities without mutating per-scan scope."""
+
     def __init__(
         self,
         *,
@@ -157,10 +146,7 @@ class PresidioScanner:
         language: str = "en",
         score_threshold: float = 0.35,
     ) -> None:
-        # PET-109 D3: entities=None now means the curated default detection set
-        # (not "all recognizers"). Defensive copy keeps the frozen module tuple
-        # immutable shared state; _scan_sync therefore always passes a concrete
-        # entity list to analyzer.analyze(), never the all-recognizers sentinel.
+        # A concrete entity list prevents Presidio from enabling all recognizers.
         self._entities = list(DEFAULT_PRESIDIO_ENTITIES) if entities is None else list(entities)
         self._language = language
         self._score_threshold = score_threshold
@@ -173,20 +159,14 @@ class PresidioScanner:
 
     @property
     def name(self) -> str:
+        """Return the stable scanner id."""
         return "presidio"
 
     def availability(self) -> tuple[bool, str | None, AvailabilityCause | None]:
-        """Cheap backend-presence probe. Never imports the backend.
+        """Report backend presence or terminal load failure without importing the backend.
 
-        Returns ``(ok, reason, cause)`` (PET-103). presidio's ``_load_error`` is
-        a ``BaseException`` that may itself be a missing-package ``ImportError``
-        surfaced at load; the owning scanner classifies that sub-case as
-        ``absent`` by comparing the formatted message against its own
-        ``_INSTALL_HINT`` constant (this is the scanner classifying its own
-        state, not the pipeline reaching into privates). Every other terminal
-        ``_load_error`` is a genuine load crash → ``load_failed``. ``find_spec``
-        misses are ``absent``.
-        """
+        Returns ``(ok, reason, cause)``; a missing-package load error is absent,
+        while other terminal load errors are load_failed."""
         if self._load_error is not None and not self._load_error_retryable:
             msg = self._load_error_message(self._load_error)
             cause: AvailabilityCause = (
@@ -279,26 +259,12 @@ class PresidioScanner:
         session_id: str | None = None,
         extra_entities: Sequence[str] | None = None,
     ) -> ScanResult:
-        """Scan ``text`` for PII and return a ScanResult (never raises).
+        """Return personal-information findings or backend errors as scan results.
 
-        ``extra_entities`` (PET-119) is an *additive* per-call opt-in list, unioned
-        on top of the scanner's constructed base set (``self._entities``) for this
-        call only. It lets a caller (the pipeline, per active profile) widen the
-        detected entity set without rebuilding the scanner; ``self._entities`` is
-        never mutated, so concurrent scans on different profiles cannot race
-        (Decision 6). ``None``/empty preserves today's behavior exactly.
-
-        Loading and analysis run in worker threads so cold starts cannot block
-        the event loop or prevent the pipeline's timeout from firing. A load
-        already in progress finishes for subsequent calls; cancellation during
-        loading never proceeds to analysis of the abandoned text.
-
-        Cancellation residual (SCAN-03): analysis runs in a worker thread via
-        ``asyncio.to_thread``. Cancelling the awaiting task frees the event loop
-        promptly, but the worker thread runs to completion on the default
-        executor — cancellation does not interrupt in-flight analysis. A
-        cancellable-executor path is future work.
-        """
+        Per-call entity additions preserve the scanner base and concurrent scope.
+        Loading and analysis run off the event loop. Cancellation propagates;
+        a cancelled load does not analyze abandoned text, while an in-flight
+        analysis thread runs to completion."""
         start_time = time.perf_counter()
         try:
             await asyncio.to_thread(self._ensure_loaded)
@@ -331,16 +297,7 @@ class PresidioScanner:
             )
 
     def _effective_entities(self, extra_entities: Sequence[str] | None) -> list[str]:
-        """Additive, order-preserving dedup of ``extra_entities`` over the base set.
-
-        Returns the scanner's own ``self._entities`` unchanged when there are no
-        extras (the default/no-profile path — byte-for-byte today's behavior).
-        Otherwise unions the per-call extras on top via ``resolve_presidio_entities``
-        (the same order-preserving ``dict.fromkeys`` dedup the config path uses), so
-        a config/profile overlap cannot double-fire. ``self._entities`` is always
-        non-empty (>= DEFAULT_PRESIDIO_ENTITIES), so the empty-set guard never trips.
-        ``self._entities`` is **not** mutated (Decision 6 concurrency invariant). PET-119.
-        """
+        """Return the base entities plus per-call additions without mutating the base."""
         if not extra_entities:
             return self._entities
         return resolve_presidio_entities(tuple(self._entities), tuple(extra_entities))
@@ -390,9 +347,9 @@ def _resolve_overlaps(
         assert prev_finding.position is not None
         assert current_finding.position is not None
         if current_finding.position.start < prev_finding.position.end:
-            cur_sev = _SEVERITY_RANK.get(current_finding.severity, 999)
-            prev_sev = _SEVERITY_RANK.get(prev_finding.severity, 999)
-            if cur_sev < prev_sev or (
+            cur_sev = severity_rank(current_finding.severity)
+            prev_sev = severity_rank(prev_finding.severity)
+            if cur_sev > prev_sev or (
                 cur_sev == prev_sev and current_finding.confidence > prev_finding.confidence
             ):
                 result[-1] = (current_finding, current_entity)
@@ -408,20 +365,11 @@ def anonymize(
     mode: Literal["redact", "replace", "hash", "mask"] = "redact",
     hash_key: str | None = None,
 ) -> str:
-    """Anonymize PII spans in ``text`` using positioned findings.
+    """Anonymize positioned, overlap-resolved personal-information findings.
 
-    Contract (PET-60 / SCAN-06): ``findings`` must already be overlap-resolved by
-    the pipeline's ``merge_findings()`` before being passed here — this function
-    does not re-run the pipeline's overlap resolution. The engine path
-    (``redact``/``hash``) defers to Presidio's own span handling; the manual path
-    (``replace``/``mask``) applies a severity-first tiebreaker via
-    ``_resolve_overlaps`` for any residual overlaps (higher severity wins; on a
-    severity tie, higher confidence wins). Callers invoking ``anonymize()``
-    directly should call ``merge_findings()`` first.
-
-    ``mode='hash'`` requires a non-empty ``hash_key`` — unkeyed hashing is
-    reversible on low-entropy PII — and raises ``ValueError`` otherwise.
-    """
+    Callers must resolve overlaps with ``merge_findings`` first. Manual modes
+    resolve residual overlaps by severity then confidence. Hash mode requires
+    a nonempty key because unkeyed hashes expose low-entropy values."""
     if mode == "hash" and not hash_key:
         raise ValueError(
             "hash_key is required and must be non-empty for mode='hash'. "
@@ -510,7 +458,6 @@ def _anonymize_manual_path(
             text = text[: finding.position.start] + label + text[finding.position.end :]
         return text
 
-    # mask mode
     sorted_reverse = sorted(
         resolved,
         key=lambda x: x[0].position.start,  # type: ignore[union-attr]

@@ -1,10 +1,10 @@
-"""Shared fixtures for PET-14 adversarial corpus (Bucket B)."""
+"""Provide syntactic and degraded pipelines for adversarial tests."""
 
 from __future__ import annotations
 
 import pytest
 
-from petasos.config import PetasosConfig
+from petasos.config.sections import PetasosConfig
 from petasos.pipeline import Pipeline
 from petasos.scanners.minimal import MinimalScanner
 

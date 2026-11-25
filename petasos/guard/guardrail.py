@@ -1,0 +1,268 @@
+"""Recognise a tool call that would change a guardrail.
+
+The guard stays host-agnostic. A host supplies the paths and the command
+patterns that belong to it. Petasos's own package files and its own commands
+are recognised here. A shell command that names a protected path is a change
+unless the program is a plain reader and is used as one. So is a command that
+names a directory holding a protected path, or a wildcard that covers one,
+when that directory is inside a root the host names (its home). A directory
+further up, such as ``/``, is left to the destructive-command rules. A
+redirect into a protected path is always a change. A path that only appears
+inside text the command writes somewhere else is not.
+
+Program text (``execute_code``, ``python``, and ``python -c``) is not read as
+a shell line. Embedded commands are judged as shell, and any protected path
+the text names is a change. Python is not treated as read-only.
+
+Recognition is the plain forms and the cheap disguises: quotes joined inside
+a word, a backslash before an ordinary character, an environment-variable
+prefix, ``sh -c``, ``eval``, a script handed to PowerShell or cmd, a program
+started by another (``timeout 5 hermes ...``), a relative path, a ``cd``
+earlier in the same command, ``~``,
+``$HERMES_HOME``, a subshell, and commands chained with ``&&``, ``||``, ``;``,
+``&`` or ``|``. It is not a sandbox. Encoded payloads, aliases, command
+substitution inside double quotes, and a path assembled at runtime from
+separate pieces are not matched."""
+
+from __future__ import annotations
+
+import logging
+import os
+import re
+import threading
+from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
+from petasos.guard.bounds import _TOO_LONG, _UNREADABLE
+from petasos.guard.paths import _match_path, _Owned, _owned
+from petasos.guard.program import _is_code_tool
+from petasos.guard.shell import _command_change, _judge_code
+from petasos.guard.shell_parse import _program
+from petasos.guard.surface import GuardrailHit, GuardrailSurface, package_roots
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable, Mapping
+
+
+_READ_TOOLS = frozenset(
+    {
+        "file_read",
+        "read",
+        "read_file",
+        "read_terminal",
+        "search_files",
+        "vision_analyze",
+        "web_extract",
+        "web_search",
+    }
+)
+_PATH_KEYS = frozenset(
+    {
+        "dest",
+        "destination",
+        "dir",
+        "directory",
+        "file",
+        "file_path",
+        "filename",
+        "filepath",
+        "new_path",
+        "old_path",
+        "path",
+        "source",
+        "src",
+        "target",
+    }
+)
+_COMMAND_KEYS = frozenset({"cmd", "code", "command", "input", "script"})
+_WRITE_TOOLS = frozenset(
+    {
+        "chmod",
+        "create_file",
+        "delete_file",
+        "edit_file",
+        "file_write",
+        "move_file",
+        "patch",
+        "write",
+        "write_file",
+    }
+)
+# Tools that remove or move a whole directory, so a directory that holds a
+# protected path counts.
+_TREE_TOOLS = frozenset({"chmod", "delete_file", "move_file"})
+# A plain command (see ``_plain_command``): words of plain characters, and a
+# program word that is one such word or an absolute path of them.
+_PLAIN_WORD = re.compile(r"[A-Za-z0-9._-]+")
+# A plain command is short; longer text is never one and is not split.
+_PLAIN_MAX_CHARS = 4096
+_POSIX_PROGRAM = re.compile(r"/(?:[A-Za-z0-9._-]+/)*([A-Za-z0-9._-]+)")
+_WINDOWS_PROGRAM = re.compile(r"[A-Za-z]:([\\/])(?:[A-Za-z0-9._-]+\1)*([A-Za-z0-9._-]+)")
+
+
+@dataclass(frozen=True)
+class CheckFailure:
+    """Recognition could not run; this is distinct from a clean no-hit."""
+
+    cause: str
+
+
+class CheckFailures:
+    """Log a recognition failure once per retained session, across all paths."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._seen: dict[str, None] = {}
+
+    def note(self, session_id: str, failure: CheckFailure) -> None:
+        with self._lock:
+            if session_id in self._seen:
+                return
+            self._seen[session_id] = None
+            if len(self._seen) > 10_000:
+                del self._seen[next(iter(self._seen))]
+        logging.getLogger("petasos.session.guard").error(
+            "PETASOS_GUARDRAIL_CHECK_FAILED session=%s: %s", session_id, failure.cause
+        )
+
+
+def unavailable_message(tool: str) -> str:
+    """The refusal when a guardrail check could not run."""
+    return (
+        f"[BLOCKED by Petasos] Tool '{tool}' was NOT executed. "
+        "The guardrail check could not run. The change was refused. "
+        "Ask the operator to check the Petasos error log and retry after the check is restored."
+    )
+
+
+def recognize(
+    tool: str,
+    params: Mapping[str, object],
+    *,
+    protected: Iterable[str] = (),
+    surface: GuardrailSurface | None = None,
+    package: Iterable[str] | None = None,
+    environ: Mapping[str, str] | None = None,
+    cwd: str | None = None,
+) -> GuardrailHit | None:
+    """The first guardrail change in ``params``, or ``None``.
+
+    ``protected`` is the host's path set, used when ``surface`` does not label
+    a path. A labelled path keeps its label. ``package`` defaults to the
+    installed package directory. A call that finds no change but ran out of
+    its work budget on the way is reported as too long to inspect, and one
+    that met a path the system could not work out is reported as such,
+    whatever the tool.
+    """
+    if _program(tool) in _READ_TOOLS or tool in _READ_TOOLS:
+        return None
+    host = surface if surface is not None else GuardrailSurface()
+    env = os.environ if environ is None else environ
+    work = os.getcwd() if cwd is None else cwd
+    owned = _owned(protected, host, package if package is not None else package_roots())
+    hit = _first_change(tool, params, owned, host, env, work)
+    if hit is None and owned.work.spent:
+        # Whatever ran out of budget left text unread; that is never an allow.
+        return GuardrailHit("settings", _TOO_LONG)
+    if hit is None and owned.work.unreadable:
+        # A path the system could not work out may be protected; whatever
+        # reading set it aside, that is never an allow.
+        return GuardrailHit("settings", _UNREADABLE)
+    return hit
+
+
+def _first_change(
+    tool: str,
+    params: Mapping[str, object],
+    owned: _Owned,
+    host: GuardrailSurface,
+    env: Mapping[str, str],
+    work: str,
+) -> GuardrailHit | None:
+    if _is_code_tool(tool):
+        for text, _written in _command_texts(params):
+            hit = _judge_code(text, owned, host, env, work)
+            if hit is not None:
+                return hit
+        return None
+    path_hit = _path_change(tool, params, owned, env, work, host.command_tools)
+    if path_hit is not None:
+        return path_hit
+    if _program(tool) not in host.command_tools and tool not in host.command_tools:
+        return None
+    windows = os.name == "nt"
+    for text, written in _command_texts(params):
+        plain = _plain_command(text, windows=windows) if written else None
+        hit = _command_change(text, owned, host, env, work, plain=plain)
+        if hit is not None:
+            return hit
+    return None
+
+
+def _path_change(
+    tool: str,
+    params: Mapping[str, object],
+    owned: _Owned,
+    env: Mapping[str, str],
+    cwd: str,
+    command_tools: frozenset[str],
+) -> GuardrailHit | None:
+    if _program(tool) in command_tools or tool in command_tools:
+        return None
+    above = _program(tool) in _TREE_TOOLS
+    for key, value in params.items():
+        if key not in _PATH_KEYS or not isinstance(value, str):
+            continue
+        hit = _match_path(value, owned, env, cwd, above=above)
+        if hit is not None:
+            return hit
+    return None
+
+
+def _plain_command(text: str, *, windows: bool) -> tuple[str, ...] | None:
+    """The words of ``text`` when the whole text is one plain command, else ``None``.
+
+    Only blanks, tabs and newlines around the text are removed. What is left
+    must be words of letters, digits, ``.``, ``_`` and ``-`` separated by
+    single spaces, at least two of them. The program word may instead be an
+    absolute path of those characters (``/opt/hermes/bin/hermes``), and on a
+    Windows host also a drive path with a separator after the colon
+    (``C:\\Tools\\hermes``, ``C:/Tools/hermes``). Such a program word stands
+    for its last part, compared exactly: the caller compares the result to
+    whole words, so ``hermes.exe`` or ``Hermes`` is not ``hermes``. Anything
+    else, a separator, quoting, expansion, a comment or a here-document
+    included, gives ``None``, and so does text longer than
+    ``_PLAIN_MAX_CHARS`` after trimming, which is not split.
+    """
+    trimmed = text.strip(" \t\n")
+    if len(trimmed) > _PLAIN_MAX_CHARS:
+        return None
+    words = trimmed.split(" ")
+    if len(words) < 2 or not all(_PLAIN_WORD.fullmatch(word) for word in words[1:]):
+        return None
+    program = words[0]
+    if _PLAIN_WORD.fullmatch(program):
+        return tuple(words)
+    found = _POSIX_PROGRAM.fullmatch(program)
+    if found is not None:
+        return (found.group(1), *words[1:])
+    found = _WINDOWS_PROGRAM.fullmatch(program) if windows else None
+    if found is not None:
+        return (found.group(2), *words[1:])
+    return None
+
+
+def _command_texts(params: Mapping[str, object]) -> list[tuple[str, bool]]:
+    """Each command text, and whether the call gave it as text.
+
+    An argument list is joined into text, which the call did not write.
+    """
+    texts: list[tuple[str, bool]] = []
+    for key, value in params.items():
+        if key not in _COMMAND_KEYS:
+            continue
+        if isinstance(value, str):
+            texts.append((value, True))
+        elif isinstance(value, (list, tuple)) and all(isinstance(item, str) for item in value):
+            texts.append((" ".join(value), False))
+    return texts

@@ -1,3 +1,5 @@
+"""Track bounded session risk with token binding and durable termination tombstones."""
+
 from __future__ import annotations
 
 import hashlib
@@ -10,12 +12,13 @@ from collections import OrderedDict, deque
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from petasos.config.secrets import Secrets
 from petasos.session.escalation import evaluate_tier
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
-    from petasos.config import PetasosConfig
+    from petasos.config.sections import PetasosConfig
 
 _logger = logging.getLogger(__name__)
 
@@ -23,18 +26,7 @@ DEFAULT_FREQUENCY_WEIGHTS: dict[str, float] = {
     "petasos.syntactic.injection.*": 10.0,
     "petasos.syntactic.structural.*": 5.0,
     "petasos.syntactic.encoding.*": 3.0,
-    # PET-94 Decision 3.2 — encoding parity (both are suppressible content-shaped
-    # heuristics). Bound: <=5 command rules fire per scan x 3.0 = 15 points, ==
-    # default tier1_threshold and well below the 50.0 tier3 termination floor, so
-    # a single shell-heavy param cannot terminate a session. The weight is a
-    # documented constraint, not a free parameter: a nudge above 3.0 would cross
-    # the maximally-stacked single scan into tier2 territory.
-    # PET-176: the constraint above governs UNCAPPED update() callers only. On
-    # capped paths (ingestion results and tool parameters, weight_cap =
-    # min(tier1)/4) the clamp binds before this map in both directions: the
-    # ceiling caps a maximally-stacked scan at one step, and the quantization
-    # floor drops any scan below one step to zero — so a single 3.0-weight
-    # command rule scores nothing under the shipped cap of 3.75.
+    # See docs/architecture/rationale.md, "Quantized scan contributions".
     "petasos.syntactic.command.*": 3.0,
     "petasos.selfmod.config_write": 10.0,
     "petasos.selfmod.config_ref": 3.0,
@@ -45,6 +37,8 @@ _RATE_LIMIT_WINDOW_SECONDS: float = 60.0
 
 @dataclass
 class SessionState:
+    """Record a session score, termination state and rolling finding window."""
+
     last_score: float
     last_update: float
     rolling_findings: deque[float] = field(default_factory=deque)
@@ -53,6 +47,8 @@ class SessionState:
 
 @dataclass(frozen=True)
 class FrequencyUpdateResult:
+    """Report score and tier changes from one session update."""
+
     previous_score: float
     current_score: float
     tier: str
@@ -62,6 +58,8 @@ class FrequencyUpdateResult:
 
 @dataclass(frozen=True)
 class SessionToken:
+    """Bind a session and host identity to an authentication digest."""
+
     session_id: str
     host_id: str
     hmac_digest: str
@@ -76,40 +74,37 @@ RATE_LIMITED_RESULT = FrequencyUpdateResult(
 
 
 class FrequencyTracker:
+    """Bound session state and retain terminated-session tombstones."""
+
     def __init__(
         self,
         config: PetasosConfig,
         *,
         is_pinned: Callable[[str], bool] | None = None,
         on_terminate: Callable[[str], None] | None = None,
+        secrets: Secrets | None = None,
     ) -> None:
-        self._half_life = config.frequency_half_life_seconds
-        self._rolling_window = config.rolling_window_seconds
-        self._rolling_threshold = config.rolling_threshold
-        self._max_sessions = config.max_sessions
-        self._session_ttl = config.session_ttl_seconds
-        self._max_new_per_minute = config.max_new_sessions_per_minute
+        held = secrets if secrets is not None else Secrets()
+        frequency = config.frequency
+        sessions = config.sessions
+        self._half_life = frequency.half_life_seconds
+        self._rolling_window = frequency.rolling_window_seconds
+        self._rolling_threshold = frequency.rolling_threshold
+        self._max_sessions = sessions.max
+        self._session_ttl = sessions.ttl_seconds
+        self._max_new_per_minute = sessions.max_new_per_minute
         self._config = config
-        self._session_secret: bytes | None = config.session_secret
+        self._secrets = held
+        self._session_secret: bytes | None = held.session_secret
 
-        # PET-107: cross-thread access from concurrent delegated children. The
-        # RLock guards ALL mutable state (sessions, tombstones, deques). Internal
-        # helpers assume it is held (RLock tolerates re-entry).
+        # The reentrant lock guards sessions, tombstones and deques across delegated children.
         self._lock = threading.RLock()
-        # PET-107 D6: lineage pinning + termination unpin. Both run INSIDE this
-        # tracker's critical section during eviction/tombstoning — by contract
-        # they are O(1), non-blocking, must not acquire this lock or call any
-        # FrequencyTracker method, and only touch the lineage registry. The
-        # shipped wiring (registry.is_pinned / registry.unregister) satisfies
-        # this, and the registry never calls back into the tracker, so the only
-        # nesting is tracker -> registry (no deadlock cycle, spec D10).
+        # See docs/architecture/rationale.md, "Lineage lock order".
         self._is_pinned = is_pinned
         self._on_terminate = on_terminate
 
         raw_weights = (
-            config.frequency_weights
-            if config.frequency_weights is not None
-            else DEFAULT_FREQUENCY_WEIGHTS
+            frequency.weights if frequency.weights is not None else DEFAULT_FREQUENCY_WEIGHTS
         )
 
         self._exact_weights: dict[str, float] = {}
@@ -134,36 +129,23 @@ class FrequencyTracker:
         self._sessions: dict[str, SessionState] = {}
         self._creation_timestamps: deque[float] = deque()
         self._terminated_ids: OrderedDict[str, None] = OrderedDict()
-        self._max_terminated: int = config.max_terminated_tombstones
+        self._max_terminated: int = sessions.max_tombstones
         self._ttl_deque: deque[tuple[float, str]] = deque()
 
+    @property
+    def config(self) -> PetasosConfig:
+        """The config tree this tracker reads."""
+        return self._config
+
     def apply_config(self, new_config: PetasosConfig) -> None:
-        """Re-read tunables from ``new_config`` in place, preserving session state.
+        """Apply validated risk settings while preserving sessions and token binding.
 
-        PET-126: the live-reconfigure hook. Re-parses ``frequency_weights`` and
-        re-reads the seven cached scalars without reconstructing the tracker, so
-        accumulated per-session scores, tombstones, and rolling-window deques
-        survive a Config Editor save or a cross-process reload.
-
-        Atomicity (spec Decision 5): the full ``frequency_weights`` validation
-        lives here, not in ``PetasosConfig.__post_init__``, so a malformed glob
-        key or a negative/non-finite weight passes ``from_dict`` but must abort
-        ``reconfigure`` before any live state is touched. The parse is therefore
-        *staged* into locals first (may raise) and only then *committed* under
-        ``_lock``; the rebind and the on-shrink tombstone trim share that one
-        critical section (``_enforce_tombstone_cap`` assumes the lock is held).
-
-        ``_session_secret`` is treated as immutable (spec Decision 2): it is never
-        rebound here, at either the pipeline or the guard tracker, so HMAC-bound
-        session tokens minted before the reload still verify afterward.
-        """
-        # Stage: re-run the full weight parse (mirrors __init__). May raise
-        # ValueError on a malformed glob key or a negative/non-finite weight;
-        # nothing has been mutated yet, so reconfigure aborts cleanly.
+        See docs/architecture/rationale.md, "Quantized scan contributions"."""
+        # Parse before mutation so invalid weights leave the live tracker intact.
+        frequency = new_config.frequency
+        sessions = new_config.sessions
         raw_weights = (
-            new_config.frequency_weights
-            if new_config.frequency_weights is not None
-            else DEFAULT_FREQUENCY_WEIGHTS
+            frequency.weights if frequency.weights is not None else DEFAULT_FREQUENCY_WEIGHTS
         )
         new_exact_weights: dict[str, float] = {}
         new_glob_entries: list[tuple[str, float]] = []
@@ -183,17 +165,15 @@ class FrequencyTracker:
 
         new_glob_entries.sort(key=lambda e: len(e[0]), reverse=True)
 
-        # Commit: rebind scalars + weights + _config under the lock, then trim
-        # tombstones (a no-op unless _max_terminated shrank below the live count).
-        # _session_secret is intentionally NOT rebound (Decision 2).
+        # The session secret remains fixed so existing tokens still verify.
         with self._lock:
-            self._half_life = new_config.frequency_half_life_seconds
-            self._rolling_window = new_config.rolling_window_seconds
-            self._rolling_threshold = new_config.rolling_threshold
-            self._max_sessions = new_config.max_sessions
-            self._session_ttl = new_config.session_ttl_seconds
-            self._max_new_per_minute = new_config.max_new_sessions_per_minute
-            self._max_terminated = new_config.max_terminated_tombstones
+            self._half_life = frequency.half_life_seconds
+            self._rolling_window = frequency.rolling_window_seconds
+            self._rolling_threshold = frequency.rolling_threshold
+            self._max_sessions = sessions.max
+            self._session_ttl = sessions.ttl_seconds
+            self._max_new_per_minute = sessions.max_new_per_minute
+            self._max_terminated = sessions.max_tombstones
             self._exact_weights = new_exact_weights
             self._glob_weights = new_glob_entries
             self._config = new_config
@@ -201,9 +181,11 @@ class FrequencyTracker:
 
     @property
     def requires_token(self) -> bool:
+        """Return whether updates require authenticated session tokens."""
         return self._session_secret is not None
 
     def mint_token(self, session_id: str, host_id: str) -> SessionToken:
+        """Return an authenticated token for a session and host."""
         if self._session_secret is None:
             raise ValueError("cannot mint token: no session_secret configured")
         if not session_id:
@@ -243,27 +225,18 @@ class FrequencyTracker:
         *,
         weight_cap: float | None = None,
     ) -> FrequencyUpdateResult:
-        """Score one scan's findings into the session and evaluate its tier.
+        """Score one scan and return its session tier.
 
-        ``weight_cap`` (PET-176) quantizes rather than truncates: a capped scan
-        contributes exactly ``weight_cap`` (when its raw weight reaches the cap)
-        or exactly ``0.0`` (when it falls below), never anything between, and a
-        zero-contribution capped scan also appends no rolling-window entry.
-        ``weight_cap=0.0`` is therefore a sentinel meaning "this scan contributes
-        nothing of any kind", not merely the limit of small caps — a cap of
-        ``1e-12`` still counts toward the rolling-window promotion.
-        ``weight_cap=None`` (the default, and every pre-PET-176 caller) applies
-        no clamp and is byte-identical to the previous behaviour.
-        """
+        A finite nonnegative cap quantizes contributions to the cap or zero.
+        Zero contributions under a cap do not enter the rolling count window.
+        None applies uncapped scoring."""
         if weight_cap is not None and (weight_cap < 0 or not math.isfinite(weight_cap)):
             raise ValueError(f"weight_cap must be non-negative and finite: {weight_cap!r}")
         with self._lock:
             session_id = self._resolve_session_id(session)
             now = time.monotonic()
 
-            # Step 1: Passive TTL eviction (O(n) amortized via sorted deque).
-            # Bounded to a snapshot of the deque length so a re-appended
-            # (still-pinned) entry is never re-examined within the same call.
+            # See docs/architecture/rationale.md, "Lineage lock order".
             n = len(self._ttl_deque)
             while n > 0 and self._ttl_deque and self._ttl_deque[0][0] <= now:
                 n -= 1
@@ -273,10 +246,7 @@ class FrequencyTracker:
                 state_ev = self._sessions[sid]
                 if state_ev.last_update + self._session_ttl > now:
                     continue
-                # D6: a pinned session is retained (a live child still
-                # references its tier). Re-queue it with its real expiry key so
-                # a later update() reaps it once it unpins; the snapshot bound n
-                # guarantees this re-appended entry is not revisited this call.
+                # See docs/architecture/rationale.md, "Lineage lock order".
                 if self._is_pinned is not None and self._is_pinned(sid):
                     self._ttl_deque.append((state_ev.last_update + self._session_ttl, sid))
                     continue
@@ -284,18 +254,14 @@ class FrequencyTracker:
                     self._terminated_ids[sid] = None
                     self._enforce_tombstone_cap()
                 del self._sessions[sid]
-                # Any session removed here is gone, terminated or not: drop its
-                # OWN outgoing lineage edge so it stops pinning its parent. A
-                # terminated session was additionally tombstoned above.
+                # Removed sessions drop their outgoing lineage edge, including terminated sessions.
                 self._fire_on_terminate(sid)
 
-            # Step 1b: Deque compaction
             if len(self._ttl_deque) > 2 * self._max_sessions:
                 self._compact_ttl_deque(now)
 
-            # Step 1.5: Tombstone early-return
             if session_id not in self._sessions and session_id in self._terminated_ids:
-                sentinel = self._config.tier3_threshold
+                sentinel = self._config.escalation.tier3
                 return FrequencyUpdateResult(
                     previous_score=sentinel,
                     current_score=sentinel,
@@ -303,7 +269,6 @@ class FrequencyTracker:
                     terminated=True,
                 )
 
-            # Step 2: Get or create session
             is_new = session_id not in self._sessions
             if is_new:
                 while (
@@ -325,15 +290,12 @@ class FrequencyTracker:
 
             state = self._sessions[session_id]
 
-            # Step 3: Enforce max-sessions cap. _evict_one skips pinned sessions
-            # (D6); if pins prevent eviction and the table has grown to the hard
-            # 2x ceiling, force-evict the smallest-last_update pinned session.
+            # See docs/architecture/rationale.md, "Lineage lock order".
             if is_new and len(self._sessions) > self._max_sessions:
                 self._evict_one(session_id)
                 if self._is_pinned is not None and len(self._sessions) > 2 * self._max_sessions:
                     self._force_evict_pinned(session_id)
 
-            # Step 4: Terminated sessions
             if state.terminated:
                 return FrequencyUpdateResult(
                     previous_score=state.last_score,
@@ -342,63 +304,39 @@ class FrequencyTracker:
                     terminated=True,
                 )
 
-            # Step 5: Compute weight
             total_weight = 0.0
             for rid in rule_ids:
                 total_weight += self._match_weight(rid)
             if weight_cap is not None:
-                # QUANTIZED, not merely truncated: a capped scan contributes one
-                # full step or nothing. The floor half is what bounds the
-                # benign-re-read trajectory (PET-176 D4) — a scan whose ENTIRE
-                # raw weight is below one step is, by the weight map's own
-                # calibration, not a poisoning event worth accumulating. The
-                # ceiling half is what bounds the poisoned one. weight_cap ==
-                # 0.0 collapses both to "contributes nothing".
+                # See docs/architecture/rationale.md, "Quantized scan contributions".
                 total_weight = weight_cap if total_weight >= weight_cap else 0.0
 
-            # Step 6: Decay previous score
             elapsed = max(0.0, now - state.last_update)
             if elapsed > 0 and state.last_score > 0:
                 decayed = state.last_score * math.exp((-elapsed * math.log(2)) / self._half_life)
             else:
                 decayed = state.last_score
 
-            # Step 7: Update score
             previous_score = decayed
             current_score = decayed + total_weight
 
-            # Step 8: Update rolling window
             while (
                 state.rolling_findings and (now - state.rolling_findings[0]) > self._rolling_window
             ):
                 state.rolling_findings.popleft()
-            # PET-176: the rolling-window append is a second, COUNT-based
-            # promotion channel the weight clamp cannot bound (Step 9 promotes
-            # at rolling_threshold findings-scans regardless of score). A capped
-            # scan that contributed no weight must not arm it either — otherwise
-            # a zero-weight finding (e.g. `petasos.llmguard.injection`, which
-            # matches no glob in DEFAULT_FREQUENCY_WEIGHTS and resolves to 0.0)
-            # would promote a session to tier1 at score 0.0. Uncapped callers
-            # keep today's behaviour exactly.
+            # See docs/architecture/rationale.md, "Quantized scan contributions".
             if rule_ids and (weight_cap is None or total_weight > 0.0):
                 state.rolling_findings.append(now)
 
-            # Step 9: Evaluate tier
-            tier = evaluate_tier(current_score, self._config)
-            if tier == "none" and len(state.rolling_findings) >= self._rolling_threshold:
-                tier = "tier1"
-
-            # Step 10: Update state
             state.last_score = current_score
             state.last_update = now
+            tier = self.tier_for_state(state)
             self._ttl_deque.append((now + self._session_ttl, session_id))
             if tier == "tier3":
                 state.terminated = True
                 self._add_tombstone(session_id)
-                # Tombstone path (2/4): newly terminated session unpins its parent.
                 self._fire_on_terminate(session_id)
 
-            # Step 11: Return
             return FrequencyUpdateResult(
                 previous_score=previous_score,
                 current_score=current_score,
@@ -406,7 +344,24 @@ class FrequencyTracker:
                 terminated=state.terminated,
             )
 
+    def tier_for_state(self, state: SessionState | None) -> str:
+        """The tier of a retained snapshot, including its rolling-count promotion.
+
+        Scores and rolling windows advance together on update. Every consumer
+        reads that same snapshot until the next update or reconfiguration.
+        """
+        with self._lock:
+            if state is None:
+                return "none"
+            if state.terminated:
+                return "tier3"
+            tier = evaluate_tier(state.last_score, self._config)
+            if tier == "none" and len(state.rolling_findings) >= self._rolling_threshold:
+                return "tier1"
+            return tier
+
     def get_state(self, session: str | SessionToken) -> SessionState | None:
+        """Return live session state, or None when it is not retained."""
         with self._lock:
             session_id = self._resolve_session_id(session)
             state = self._sessions.get(session_id)
@@ -420,6 +375,7 @@ class FrequencyTracker:
             )
 
     def is_terminated(self, session_id: str) -> bool:
+        """Return whether a session is live-terminated or tombstoned."""
         with self._lock:
             state = self._sessions.get(session_id)
             if state is not None:
@@ -427,48 +383,50 @@ class FrequencyTracker:
             return session_id in self._terminated_ids
 
     def terminate_session(self, session: str | SessionToken) -> None:
+        """Mark the session terminated and retain its tombstone."""
         with self._lock:
             session_id = self._resolve_session_id(session)
             state = self._sessions.get(session_id)
             if state is not None:
                 state.terminated = True
             self._add_tombstone(session_id)
-            # Tombstone path (3/4): explicit termination unpins the parent.
             self._fire_on_terminate(session_id)
 
     def reset(self, session: str | SessionToken) -> None:
+        """Reset session state while preserving termination tombstones."""
         with self._lock:
             session_id = self._resolve_session_id(session)
             if self._sessions.pop(session_id, None) is not None:
-                # Removed session drops its own outgoing lineage edge.
                 self._fire_on_terminate(session_id)
 
     def force_reset(self, session_id: str) -> None:
+        """Remove session state and its termination tombstone."""
         with self._lock:
             removed = self._sessions.pop(session_id, None)
             self._terminated_ids.pop(session_id, None)
             if removed is not None:
-                # Removed session drops its own outgoing lineage edge.
                 self._fire_on_terminate(session_id)
 
     def clear(self) -> None:
+        """Clear session state and tombstones, releasing lineage pins."""
         with self._lock:
             removed_ids = tuple(self._sessions)
             self._sessions.clear()
             self._creation_timestamps.clear()
             self._terminated_ids.clear()
             self._ttl_deque.clear()
-            # Every removed session drops its own outgoing lineage edge.
             for session_id in removed_ids:
                 self._fire_on_terminate(session_id)
 
     @property
     def size(self) -> int:
+        """Return the number of retained live sessions."""
         with self._lock:
             return len(self._sessions)
 
     @property
     def tombstone_count(self) -> int:
+        """Return the number of retained termination tombstones."""
         with self._lock:
             return len(self._terminated_ids)
 
@@ -498,14 +456,9 @@ class FrequencyTracker:
         return resolved
 
     def _fire_on_terminate(self, session_id: str) -> None:
-        """Notify the lineage registry that ``session_id`` is gone.
+        """Notify lineage of removal while containing callback failures.
 
-        Runs inside the tracker's critical section; by contract the callback is
-        O(1), non-blocking, touches only the lineage registry, and never calls
-        back into this tracker (preserving the PET-30/34 direct-write tombstone
-        discipline — it must not touch ``_terminated_ids``). Wrapped so a buggy
-        callback cannot break tombstoning.
-        """
+        See docs/architecture/rationale.md, "Lineage lock order"."""
         if self._on_terminate is None:
             return
         try:
@@ -531,9 +484,7 @@ class FrequencyTracker:
         for sid, state in self._sessions.items():
             if sid == protect_id:
                 continue
-            # D6: never evict a pinned session on the normal path — a live child
-            # still references its tier. The hard ceiling handles the all-pinned
-            # overflow case separately.
+            # Live children require pinned session tiers until the hard memory ceiling binds.
             if self._is_pinned is not None and self._is_pinned(sid):
                 continue
             if state.terminated and (
@@ -545,34 +496,22 @@ class FrequencyTracker:
 
         if terminated_candidate is not None:
             sid = terminated_candidate[0]
-            # Intentionally not using _add_tombstone(): that calls move_to_end()
-            # for existing keys, which would refresh the FIFO position and make
-            # the tombstone appear younger than it is.
+            # Refreshing an existing tombstone would incorrectly extend its FIFO lifetime.
             if sid not in self._terminated_ids:
                 self._terminated_ids[sid] = None
                 self._enforce_tombstone_cap()
             del self._sessions[sid]
-            # Tombstone path (4/4): an evicted terminated session unpins its parent.
             self._fire_on_terminate(sid)
         elif oldest_candidate is not None:
-            # Plain LRU eviction of a non-terminated session: not a tombstone,
-            # but the evicted session is gone, so it must still drop its own
-            # outgoing edge (mirrors _force_evict_pinned) rather than leave its
-            # parent pinned by a session that no longer exists.
+            # See docs/architecture/rationale.md, "Lineage lock order".
             sid = oldest_candidate[0]
             del self._sessions[sid]
             self._fire_on_terminate(sid)
 
     def _force_evict_pinned(self, protect_id: str) -> None:
-        """Hard-ceiling overflow: force-evict the smallest-last_update pinned session.
+        """Enforce the hard session ceiling while preserving termination tombstones.
 
-        Reached only when every eligible session is pinned and the table has
-        grown beyond ``2 * max_sessions``. Bounding memory under a spray takes
-        precedence over tier-1/2 inheritance: the sacrificed parent is dropped
-        (it is non-terminated, so it is NOT tombstoned) and its sub-tree degrades
-        to own-tier — a *terminated* ancestor's tombstone survives ``del``, so
-        the tier-3 floor (D4) is unaffected. Logs once at WARNING; never raises.
-        """
+        See docs/architecture/rationale.md, "Lineage lock order"."""
         victim: tuple[str, float] | None = None
         for sid, state in self._sessions.items():
             if sid == protect_id:
@@ -590,7 +529,5 @@ class FrequencyTracker:
             self._max_sessions,
             sid,
         )
-        # Non-terminated force-evict: fire on_terminate so the evicted session's
-        # OWN outgoing edge drops (unpinning ITS parent). The children's inbound
-        # edges remain; they read get_state=None -> "none" (own-tier).
+        # Dropping an outgoing edge unpins the parent; child edges retain own-tier fallback.
         self._fire_on_terminate(sid)

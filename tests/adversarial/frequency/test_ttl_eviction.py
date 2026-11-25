@@ -1,25 +1,28 @@
-"""PET-75 FREQ-05: O(k) TTL eviction via sorted deque with compaction."""
+"""Pin expiry-ordered session eviction and bounded deque compaction."""
 
 from __future__ import annotations
 
+from typing import Any
 from unittest.mock import patch
 
-from petasos.config import PetasosConfig
+from petasos.config.schema import from_mapping, merge
+from petasos.config.sections import PetasosConfig
 from petasos.session.frequency import FrequencyTracker
 
 
-def _cfg(**overrides: object) -> PetasosConfig:
-    defaults: dict[str, object] = {
-        "frequency_enabled": True,
-        "escalation_enabled": True,
+def _cfg(changes: dict[str, Any] | None = None) -> PetasosConfig:
+    document: dict[str, Any] = {
+        "frequency": {"enabled": True},
+        "escalation": {"enabled": True},
     }
-    defaults.update(overrides)
-    return PetasosConfig(**defaults)  # type: ignore[arg-type]
+    if changes:
+        document = merge(document, changes)
+    return from_mapping(PetasosConfig, document)
 
 
 class TestTtlEviction:
     def test_ttl_eviction_uses_deque(self) -> None:
-        cfg = _cfg(session_ttl_seconds=100.0, max_sessions=200)
+        cfg = _cfg({"sessions": {"ttl_seconds": 100.0, "max": 200}})
         tracker = FrequencyTracker(cfg)
         t0 = 1000.0
 
@@ -38,7 +41,7 @@ class TestTtlEviction:
             assert tracker.get_state(f"s{i}") is None
 
     def test_refreshed_session_survives_stale_deque_entry(self) -> None:
-        cfg = _cfg(session_ttl_seconds=100.0)
+        cfg = _cfg({"sessions": {"ttl_seconds": 100.0}})
         tracker = FrequencyTracker(cfg)
         t0 = 1000.0
 
@@ -54,7 +57,7 @@ class TestTtlEviction:
         assert tracker.get_state("s1") is not None
 
     def test_compaction_triggers_at_threshold(self) -> None:
-        cfg = _cfg(session_ttl_seconds=1000.0, max_sessions=3)
+        cfg = _cfg({"sessions": {"ttl_seconds": 1000.0, "max": 3}})
         tracker = FrequencyTracker(cfg)
         t0 = 1000.0
 
@@ -72,13 +75,13 @@ class TestTtlEviction:
                 ):
                     tracker.update(f"s{i}", [])
 
-        assert len(tracker._ttl_deque) <= 2 * cfg.max_sessions
+        assert len(tracker._ttl_deque) <= 2 * cfg.sessions.max
 
         expiries = [entry[0] for entry in tracker._ttl_deque]
         assert expiries == sorted(expiries)
 
     def test_clear_resets_deque(self) -> None:
-        cfg = _cfg(session_ttl_seconds=100.0)
+        cfg = _cfg({"sessions": {"ttl_seconds": 100.0}})
         tracker = FrequencyTracker(cfg)
         t0 = 1000.0
 

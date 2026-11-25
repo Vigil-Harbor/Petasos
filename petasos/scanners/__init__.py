@@ -1,3 +1,5 @@
+"""Expose syntactic scanners and load optional scanners on demand."""
+
 from __future__ import annotations
 
 import logging
@@ -20,26 +22,6 @@ def _is_missing_package(exc: ImportError, expected_names: set[str]) -> bool:
 
 
 try:
-    from petasos.scanners.llm_guard import LlmGuardScanner  # noqa: F401
-
-    __all__.append("LlmGuardScanner")
-except ImportError as _exc:
-    if not _is_missing_package(_exc, {"llm_guard"}):
-        raise
-    _logger.debug("LlmGuardScanner not available: %s", _exc)
-    del _exc
-
-try:
-    from petasos.scanners.llama_firewall import LlamaFirewallScanner  # noqa: F401
-
-    __all__.append("LlamaFirewallScanner")
-except ImportError as _exc:
-    if not _is_missing_package(_exc, {"llamafirewall", "llama_firewall"}):
-        raise
-    _logger.debug("LlamaFirewallScanner not available: %s", _exc)
-    del _exc
-
-try:
     from petasos.scanners.presidio import PresidioScanner, anonymize
 
     __all__ += ["PresidioScanner", "anonymize"]
@@ -58,14 +40,3 @@ except ImportError as _exc:
         raise
     _logger.debug("PromptGuardScanner not available: %s", _exc)
     del _exc
-
-# PET-174: imported AFTER the extras blocks above so the bootstrap module's
-# MinimalScanner import is already satisfied and no partial-initialization cycle
-# is possible. Unconditional - the helper is base install.
-from petasos.scanners.bootstrap import (  # noqa: E402
-    ScannerBuildStatus,
-    ScannerOutcome,
-    build_scanners,
-)
-
-__all__ += ["ScannerBuildStatus", "ScannerOutcome", "build_scanners"]

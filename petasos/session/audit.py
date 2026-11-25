@@ -1,3 +1,5 @@
+"""Emit privacy-bounded audit records while isolating callback failures."""
+
 from __future__ import annotations
 
 import logging
@@ -6,19 +8,22 @@ import uuid
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
 
-from petasos._types import AuditEvent
+from petasos.config.schema import to_mapping
+from petasos.model import AuditEvent
 
 _logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from petasos._types import Direction, PipelineResult
-    from petasos.config import PetasosConfig
+    from petasos.config.sections import PetasosConfig
+    from petasos.model import Direction, PipelineResult
     from petasos.session.frequency import FrequencyUpdateResult
 
 
 class AuditEmitter:
+    """Sequence audit records and contain callback failures."""
+
     def __init__(
         self,
         config: PetasosConfig,
@@ -31,18 +36,18 @@ class AuditEmitter:
         self._last_callback_error: str | None = None
         self._listeners: list[Callable[[AuditEvent], None]] = []
 
-    def apply_config(self, new_config: PetasosConfig) -> None:
-        """PET-126: rebind ``_config`` in place.
+    @property
+    def config(self) -> PetasosConfig:
+        """The config tree this emitter reads."""
+        return self._config
 
-        ``audit_verbosity`` is read live off ``_config`` in ``_build_payload``, so
-        a swap takes effect on the next emitted event. Preserves
-        ``_global_sequence`` (the audit sequence is not reset), ``_listeners``, and
-        ``_last_callback_error``.
-        """
+    def apply_config(self, new_config: PetasosConfig) -> None:
+        """Apply audit settings without resetting sequence state."""
         self._config = new_config
 
     @property
     def last_callback_error(self) -> str | None:
+        """Return the last callback failure, or None after successful delivery."""
         return self._last_callback_error
 
     def emit(
@@ -53,12 +58,11 @@ class AuditEmitter:
         *,
         direction: Direction | None = None,
     ) -> AuditEvent:
+        """Emit a sequenced audit event without including raw scanned content."""
         self._last_callback_error = None
         seq = self._global_sequence
 
-        # PET-136: `direction` is the scan-level resolved value threaded down from
-        # the pipeline. Existing callers that omit it fall back to the configured
-        # direction, so no caller breaks (additive change).
+        # Omitted scan directions use the configured direction.
         resolved_direction = direction if direction is not None else self._config.direction
         payload = self._build_payload(result, freq_result, resolved_direction)
 
@@ -107,20 +111,15 @@ class AuditEmitter:
         freq_result: FrequencyUpdateResult | None,
         direction: Direction,
     ) -> MappingProxyType[str, Any]:
-        verbosity = self._config.audit_verbosity
-        emit_findings = self._config.audit_emit_findings  # live read (PET-126)
+        verbosity = self._config.audit.verbosity
+        emit_findings = self._config.audit.emit_findings
         data: dict[str, Any] = {
             "safe": result.safe,
             "finding_count": len(result.findings),
             "emit_findings": emit_findings,
         }
 
-        # PET-136: the per-finding list is included when the dedicated toggle is on
-        # OR at standard/verbose verbosity, so a minimal-verbosity capture window
-        # still emits findings. `matched_text` and raw content are never copied in
-        # (D3, redaction-safe by construction). `direction` is the scan-level
-        # resolved value, uniform across the list until D-DIRECTION-ON-FINDING
-        # lands; it is not per-finding provenance.
+        # See docs/architecture/rationale.md, "Audit finding privacy".
         if emit_findings or verbosity in ("standard", "verbose"):
             data["findings"] = [
                 {
@@ -146,7 +145,7 @@ class AuditEmitter:
                 }
                 for sr in result.scanner_results
             ]
-            data["config_snapshot"] = self._config.to_dict(redact_secrets=True)
+            data["config_snapshot"] = to_mapping(self._config)
             data["timing"] = {
                 "timestamp": time.time(),
             }

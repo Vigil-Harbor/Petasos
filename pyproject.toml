@@ -7,6 +7,11 @@ build-backend = "hatchling.build"
 # build time, so petasos/__init__.py is the sole version literal in the repo.
 path = "petasos/__init__.py"
 
+[tool.hatch.build.targets.wheel.force-include]
+# `petasos hermes install` copies the tab into a profile. An installed wheel has
+# no checkout beside it, so the wheel carries the built tab itself.
+"hermes-plugin/petasos/dashboard" = "petasos/hermes/tab_files"
+
 [project]
 name = "petasos"
 # PET-141: version is derived from petasos/__init__.py via Hatch (see
@@ -17,7 +22,7 @@ license = "MIT"
 authors = [{ name = "Vigil Harbor", email = "support@vigilharbor.com" }]
 description = "Pluggable, session-aware content security pipeline for Python AI agents"
 readme = "README.md"
-dependencies = ["pyjwt[crypto]>=2.8,<3"]
+dependencies = []
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
@@ -37,17 +42,9 @@ Changelog = "https://github.com/Vigil-Harbor/Petasos/blob/master/CHANGELOG.md"
 "Bug Tracker" = "https://github.com/Vigil-Harbor/Petasos/issues"
 
 [project.scripts]
-# PET-153: the out-of-process supervised console entrypoint. Needs the `console`
-# extra (fastapi/uvicorn) to serve: `pip install "petasos[console]"`. Equivalent
-# to `python -m petasos.console`; the OS supervisor (Task Scheduler / launchd)
-# owns the lifecycle.
-petasos-console = "petasos.console.__main__:main"
+petasos = "petasos.cli:main"
 
 [project.optional-dependencies]
-# PET-242: llm-guard and llamafirewall are deprecated in favor of prompt-guard and
-# will be removed in a later release. Both stay installable by name until then.
-llm-guard = ["llm-guard>=0.3.16,<0.4"]
-llamafirewall = ["llamafirewall"]
 # huggingface-hub 0.34 is the first with the `hf` command the docs and the scanner's
 # error message name.
 prompt-guard = [
@@ -61,8 +58,7 @@ presidio = [
     "presidio-anonymizer>=2.2,<3.0",
 ]
 semgrep = ["psutil>=7,<8"]
-console = ["fastapi>=0.110,<1", "uvicorn[standard]>=0.29,<1"]
-all = ["petasos[presidio,prompt-guard,console]"]
+all = ["petasos[presidio,prompt-guard]"]
 dev = [
     # pytest-benchmark 5.3.0 reads node._nodeid, which pytest 9.2.0 removed. Lift the
     # cap once a pytest-benchmark release supports 9.2.
@@ -73,6 +69,10 @@ dev = [
     "mypy>=1.10",
     "ruff>=0.4",
     "httpx>=0.27",
+    # The dashboard router imports FastAPI. Hermes supplies it in a real
+    # install; the tests need it here. The standalone console's uvicorn
+    # server is gone.
+    "fastapi>=0.110,<1",
     "PyYAML>=6.0",
     # PET-106: the tests/test_ci_extras_lanes.py meta-test reads pyproject.toml;
     # `tomllib` is stdlib only on 3.11+. CI runs 3.11+ (native tomllib); the local
@@ -86,12 +86,15 @@ dev = [
 # via anyio's early usefixtures("anyio_backend") collection path, which composes
 # with `@pytest.mark.parametrize`, so no async test is silently collected but
 # never awaited. The shared `anyio_backend` fixture (tests/conftest.py) pins it to
-# function-scoped asyncio. Guarded by tests/test_async_marker_invariants.py.
+# function-scoped asyncio. Guarded by tests/test_architecture.py.
 anyio_mode = "auto"
+testpaths = ["tests"]
 
 [tool.mypy]
 strict = true
 python_version = "3.11"
+# The installed plugin directory is also named petasos. It is not a second copy of this package.
+exclude = ["^hermes-plugin/"]
 
 [[tool.mypy.overrides]]
 module = [
@@ -101,12 +104,6 @@ module = [
     "presidio_anonymizer.*",
     "spacy",
     "spacy.*",
-    "jwt",
-    "jwt.*",
-    "llm_guard",
-    "llm_guard.*",
-    "llamafirewall",
-    "llamafirewall.*",
     "transformers",
     "transformers.*",
     "torch",
@@ -124,11 +121,6 @@ module = [
     # this override is belt-and-suspenders against a later refactor of the guard.
     "tomli",
     "tomli.*",
-    # PET-184: scripts/pet184_dispatch/validate.py is the runner's JSON-Schema
-    # validator (PS 5.1 has no Test-Json -Schema). jsonschema is a tooling-only
-    # import that never reaches the package or any install extra.
-    "jsonschema",
-    "jsonschema.*",
 ]
 ignore_missing_imports = true
 
@@ -137,28 +129,8 @@ module = "petasos.scanners.presidio"
 warn_unused_ignores = false
 disallow_subclassing_any = false
 
-[[tool.mypy.overrides]]
-module = [
-    "petasos.console.*",
-    "fastapi",
-    "fastapi.*",
-    # PET-191: _sse_route's TYPE_CHECKING import of starlette.types must resolve to
-    # Any in the CI typecheck lane, which installs only .[dev] (no fastapi/starlette).
-    "starlette",
-    "starlette.*",
-    "uvicorn",
-    "uvicorn.*",
-]
-ignore_missing_imports = true
-disallow_untyped_decorators = false
 
-# PET-191: LeasedStreamingResponse subclasses StreamingResponse, which is Any in
-# the CI typecheck lane (no fastapi installed). Scoped to the one module that needs it.
-[[tool.mypy.overrides]]
-module = "petasos.console._sse_route"
-disallow_subclassing_any = false
 
-[[tool.mypy.overrides]]
-module = ["reference_plugin", "reference_plugin.*"]
-ignore_errors = true
-disallow_subclassing_any = false
+[tool.coverage.run]
+source = ["petasos"]
+relative_files = true

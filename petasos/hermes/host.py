@@ -1,0 +1,494 @@
+"""The Hermes modules the adapter calls.
+
+Every Hermes import in this package goes through ``load_module``. A missing
+module returns ``None``; callers treat that as "this fact is unavailable".
+"""
+
+from __future__ import annotations
+
+import importlib
+import os
+from typing import Protocol, cast
+
+from petasos.enforce.types import ApprovalGrant, CommandJudge
+
+_TRUTHY = frozenset({"1", "true", "yes", "on"})
+_MODES = frozenset({"off", "smart", "manual"})
+
+#: How Hermes's guardian model is named to an operator.
+GUARDIAN_NAME = "Hermes's smart approval"
+# Platforms and private approval probes checked against v0.23.3 (caafe538).
+_UNATTENDED_PLATFORMS = frozenset({"api_server", "webhook"})
+
+
+class _Plugins(Protocol):
+    VALID_HOOKS: object
+
+    def get_pre_tool_call_directive(self, value: object = None) -> object: ...
+
+
+class _Approval(Protocol):
+    def is_approved(self, command: str, pattern: str) -> bool: ...
+
+    def _yolo_active(self) -> bool: ...
+
+
+class _Config(Protocol):
+    def get_env_value(self, name: str) -> str | None: ...
+
+    def save_env_value(self, name: str, value: str) -> None: ...
+
+    def load_config(self) -> dict[str, object]: ...
+
+
+class _PluginSettings(Protocol):
+    def save_plugin_settings(
+        self, plugin_id: str, manifest_path: object, values: object
+    ) -> None: ...
+
+
+class _Redact(Protocol):
+    def redact_sensitive_text(self, text: str, **options: object) -> str: ...
+
+
+def load_module(name: str) -> object | None:
+    """Import ``name``. ``None`` when the module is absent or raises."""
+    try:
+        return importlib.import_module(name)
+    except Exception:
+        return None
+
+
+def _plugins() -> _Plugins | None:
+    module = load_module("hermes_cli.plugins")
+    if module is None:
+        return None
+    return cast("_Plugins", module)
+
+
+def _approval() -> _Approval | None:
+    module = load_module("tools.approval")
+    if module is None:
+        return None
+    return cast("_Approval", module)
+
+
+def _config() -> _Config | None:
+    module = load_module("hermes_cli.config")
+    if module is None:
+        return None
+    return cast("_Config", module)
+
+
+def _settings_writer() -> _PluginSettings | None:
+    module = load_module("hermes_cli.plugins_settings")
+    if module is None:
+        return None
+    return cast("_PluginSettings", module)
+
+
+def _redact() -> _Redact | None:
+    module = load_module("agent.redact")
+    if module is None:
+        return None
+    return cast("_Redact", module)
+
+
+def approve_directive_available() -> bool:
+    """True when this Hermes build can route an approve directive."""
+    module = _plugins()
+    if module is None:
+        return False
+    return callable(getattr(module, "get_pre_tool_call_directive", None))
+
+
+def subagent_hooks_available() -> bool:
+    """True when this build's hook table includes both sub-agent hooks."""
+    module = _plugins()
+    if module is None:
+        return False
+    hooks = getattr(module, "VALID_HOOKS", None)
+    try:
+        return hooks is not None and "subagent_start" in hooks and "subagent_stop" in hooks
+    except Exception:
+        return False
+
+
+def load_redactor() -> object | None:
+    """Hermes's redactor, or ``None`` when that module is absent."""
+    module = _redact()
+    if module is None:
+        return None
+    fn = getattr(module, "redact_sensitive_text", None)
+    return fn if callable(fn) else None
+
+
+def _approvals() -> dict[str, object]:
+    module = _config()
+    if module is None:
+        return {}
+    document = module.load_config()
+    if not isinstance(document, dict):
+        raise RuntimeError("Hermes approval config is not a mapping")
+    block = document.get("approvals")
+    if not isinstance(block, dict):
+        return {}
+    return {str(key): value for key, value in block.items()}
+
+
+def approval_mode() -> str:
+    """Hermes's approval mode: ``off``, ``smart``, or ``manual``."""
+    try:
+        return _approval_mode()
+    except Exception:
+        return "manual"
+
+
+def _approval_mode() -> str:
+    """The normalised mode: ``off``, ``smart``, or ``manual``."""
+    context = load_module("tools.approval_context")
+    mode = getattr(context, "_get_approval_mode", None)
+    if callable(mode):
+        raw = mode()
+        if raw in _MODES:
+            return str(raw)
+    configured = _approvals().get("mode", "smart")
+    if configured == "off" or configured == "smart":
+        return str(configured)
+    return "manual"
+
+
+def _yolo() -> bool:
+    """True when Hermes would grant a tool call without asking."""
+    module = _approval()
+    if module is not None:
+        return bool(module._yolo_active())
+    return os.environ.get("HERMES_YOLO_MODE", "").strip().lower() in _TRUTHY
+
+
+def _context_grants() -> bool:
+    """True when the active unattended context's mode is ``approve``."""
+    block = _approvals()
+    single = os.environ.get("HERMES_SINGLE_QUERY_SESSION")
+    if single and block.get("single_query_mode") == "approve":
+        return True
+    if os.environ.get("HERMES_CRON_SESSION") and block.get("cron_mode") == "approve":
+        return True
+    platform = os.environ.get("HERMES_SESSION_PLATFORM", "")
+    return platform in _UNATTENDED_PLATFORMS and block.get("unattended_mode") == "approve"
+
+
+def approval_grant() -> ApprovalGrant:
+    """Why an approve would be granted with nobody attached.
+
+    Any one flag means the enforcer must not hand Hermes an approve. When the
+    approval module is loaded and a probe raises, the grant is reported as
+    yolo so that failure is not turned into an unattended allow.
+    """
+    if _approval() is None and _config() is None:
+        return ApprovalGrant()
+    try:
+        return ApprovalGrant(
+            mode_off=_approval_mode() == "off",
+            yolo=_yolo(),
+            context=_context_grants(),
+        )
+    except Exception:
+        return ApprovalGrant(yolo=True)
+
+
+def command_judge(command: str) -> CommandJudge:
+    """Who Hermes will put this terminal command to before it runs.
+
+    Manual mode uses a person; smart uses the guardian except human-only
+    findings. Unread commands require a person or are refused.
+    A missing or raising helper, a command Hermes does not flag, or
+    a gate that would settle without a person available answers nobody.
+    """
+    if not isinstance(command, str) or command == "":
+        return CommandJudge.NOBODY
+    try:
+        return _command_judge(command)
+    except Exception:
+        return CommandJudge.NOBODY
+
+
+def _command_judge(command: str) -> CommandJudge:
+    detection = load_module("tools.approval_detection")
+    approval = load_module("tools.approval")
+    if detection is None or approval is None:
+        return CommandJudge.NOBODY
+    detect = getattr(detection, "detect_dangerous_command", None)
+    if not callable(detect):
+        return CommandJudge.NOBODY
+    flagged = detect(command)
+    unread_fn = getattr(detection, "hardline_scan_incomplete", None)
+    unread = bool(unread_fn(command)) if callable(unread_fn) else False
+    if not unread and not (isinstance(flagged, tuple) and flagged and flagged[0] is True):
+        return CommandJudge.NOBODY
+    env_type, host_access = _terminal_backend()
+    skip = getattr(approval, "_should_skip_container_guards", None)
+    if not callable(skip) or skip(env_type, has_host_access=host_access):
+        return CommandJudge.NOBODY
+    floor = getattr(approval, "_floor_block", None)
+    if not callable(floor) or floor(command, sudo_guard=True) is not None:
+        return CommandJudge.NOBODY
+    context = load_module("tools.approval_context")
+    mode = getattr(context, "_get_approval_mode", None) if context is not None else None
+    if not callable(mode):
+        return CommandJudge.NOBODY
+    approval_mode = mode()
+    yolo = getattr(approval, "_yolo_active", None)
+    if not callable(yolo):
+        return CommandJudge.NOBODY
+    bypass = yolo() or approval_mode == "off"
+    if bypass:
+        return CommandJudge.REFUSED if unread else CommandJudge.NOBODY
+    if approval_mode not in ("manual", "smart"):
+        return CommandJudge.NOBODY
+    if not unread:
+        allowlisted = getattr(approval, "_command_matches_permanent_allowlist", None)
+        if not callable(allowlisted) or allowlisted(command):
+            return CommandJudge.NOBODY
+    presence = getattr(approval, "_presence", None)
+    if not callable(presence):
+        return CommandJudge.NOBODY
+    present = presence(None)
+    if not isinstance(present, tuple) or len(present) < 4:
+        return CommandJudge.NOBODY
+    if not (present[1] or present[2] or present[3]):
+        return CommandJudge.REFUSED if unread else CommandJudge.NOBODY
+    if unread:
+        return CommandJudge.PERSON
+    pending_keys = _pending_command_keys(approval, command)
+    if not pending_keys:
+        return CommandJudge.NOBODY
+    manual_only = getattr(detection, "SMART_MANUAL_ONLY_DESCRIPTIONS", None)
+    if manual_only is not None and any(key in manual_only for key in pending_keys):
+        return CommandJudge.PERSON
+    return CommandJudge.PERSON if approval_mode == "manual" else CommandJudge.GUARDIAN
+
+
+def approval_policy_command(command: str) -> bool:
+    """Hermes itself flags an approval-settings write, on hosts that know it."""
+    try:
+        detection = load_module("tools.approval_detection")
+        detect = getattr(detection, "detect_dangerous_command", None)
+        if not callable(detect):
+            return False
+        flagged = detect(command)
+        return (
+            isinstance(flagged, tuple)
+            and len(flagged) >= 3
+            and flagged[0] is True
+            and flagged[2] == "hermes config set approval settings"
+        )
+    except Exception:
+        return False
+
+
+def resolve_tool_call(tool: object, args: object) -> tuple[object, object]:
+    """Unwrap Tool Search using Hermes's parser; unresolved wrappers stay closed.
+
+    Session catalog restriction and schema validation still belong to Hermes's
+    dispatch. Resolution here grants no access to a tool outside that catalog.
+    """
+    if tool != "tool_call" or not isinstance(args, dict):
+        return tool, args
+    try:
+        module = load_module("tools.tool_search")
+        resolve = getattr(module, "resolve_underlying_call", None)
+        if callable(resolve):
+            name, underlying, error = resolve(dict(args))
+            sentinel = getattr(module, "CONNECTOR_BATCH_SENTINEL", None)
+            if (
+                isinstance(name, str)
+                and name
+                and name != sentinel
+                and isinstance(underlying, dict)
+                and not error
+            ):
+                return name, dict(underlying)
+    except Exception:
+        pass
+    return tool, args
+
+
+def _terminal_backend() -> tuple[str, bool]:
+    """The backend and host-access bit the command gate will use."""
+    terminal = load_module("tools.terminal_tool")
+    if terminal is None:
+        raise RuntimeError("terminal tool is unavailable")
+    config_fn = getattr(terminal, "_get_env_config", None)
+    access_fn = getattr(terminal, "_docker_has_host_access", None)
+    if not callable(config_fn) or not callable(access_fn):
+        raise RuntimeError("terminal backend facts moved")
+    config = config_fn()
+    if not isinstance(config, dict):
+        raise RuntimeError("terminal config is not a mapping")
+    env_type = config.get("env_type")
+    if not isinstance(env_type, str) or env_type == "":
+        raise RuntimeError("terminal env type missing")
+    return env_type, bool(access_fn(config))
+
+
+def _pending_command_keys(approval: object, command: str) -> tuple[str, ...]:
+    """Findings Hermes still needs consent for, from one scope snapshot.
+
+    Missing or malformed helpers answer empty, keeping the decision here.
+    """
+    findings_fn = getattr(approval, "_command_findings", None)
+    pending_fn = getattr(approval, "_pending_findings", None)
+    scope_fn = getattr(approval, "_approval_scope", None)
+    session_fn = getattr(approval, "get_current_session_key", None)
+    if not callable(findings_fn) or not callable(pending_fn):
+        return ()
+    if not callable(scope_fn) or not callable(session_fn):
+        return ()
+    findings = findings_fn(command)
+    if not isinstance(findings, list):
+        return ()
+    session_key = session_fn()
+    scopes: dict[str, object] = {}
+    for item in findings:
+        if not isinstance(item, tuple) or not item or not isinstance(item[0], str):
+            return ()
+        scopes[item[0]] = scope_fn(session_key, item[0])
+    pending = pending_fn(findings, lambda key: scopes.get(key) is not None)
+    if not isinstance(pending, tuple) or not pending or not isinstance(pending[0], list):
+        return ()
+    keys = pending[0]
+    if not all(isinstance(key, str) for key in keys):
+        return ()
+    return tuple(keys)
+
+
+def rule_always_approved(rule_key: str) -> bool:
+    """True when ``plugin_rule:<rule_key>`` is on the permanent allow-list.
+
+    A failing lookup raises. The two callers fall to opposite sides, so the
+    failure is theirs to read, not this function's.
+    """
+    module = _approval()
+    if module is None:
+        return False
+    return bool(module.is_approved("", "plugin_rule:" + rule_key))
+
+
+def read_env(name: str) -> str | None:
+    """The profile env value, via Hermes's reader. ``None`` when it is absent."""
+    module = _config()
+    if module is None:
+        return None
+    try:
+        value = module.get_env_value(name)
+    except Exception:
+        return None
+    if not isinstance(value, str) or value.strip() == "":
+        return None
+    return value
+
+
+def save_env(name: str, value: str) -> None:
+    """Write one env value through Hermes. Raises when the writer is absent."""
+    module = _config()
+    if module is None:
+        raise RuntimeError("Hermes env writer is not available")
+    module.save_env_value(name, value)
+
+
+def save_plugin_settings(plugin_id: str, manifest: object, values: dict[str, object]) -> None:
+    """Write non-secret settings through Hermes's form writer."""
+    module = _settings_writer()
+    if module is None:
+        raise RuntimeError("Hermes settings writer is not available")
+    module.save_plugin_settings(plugin_id, manifest, values)
+
+
+def load_mapping(text: str) -> object:
+    """Parse a Hermes config document. ``_BROKEN`` when no loader can read it."""
+    for module_name, attr in (
+        ("utils", "fast_safe_load"),
+        ("hermes_yaml", "safe_load"),
+        ("yaml", "safe_load"),
+    ):
+        module = load_module(module_name)
+        fn = getattr(module, attr, None) if module is not None else None
+        if not callable(fn):
+            continue
+        try:
+            return fn(text)
+        except Exception:
+            return _BROKEN
+    return _BROKEN
+
+
+class _Broken:
+    """A document that could not be parsed."""
+
+
+_BROKEN = _Broken()
+
+
+def managed_keys() -> frozenset[str] | None:
+    """Dotted config keys an administrator pinned in Hermes's managed config.
+
+    Read with ``hermes_cli.managed_scope.managed_config_keys`` (Hermes
+    ``v0.23.1``). ``None`` when this Hermes has no managed scope module, so a
+    caller can tell "nothing is pinned" from "cannot tell".
+    """
+    module = load_module("hermes_cli.managed_scope")
+    if module is None:
+        return None
+    reader = getattr(module, "managed_config_keys", None)
+    if not callable(reader):
+        return None
+    try:
+        keys = reader()
+    except Exception:
+        return None
+    if not isinstance(keys, (set, frozenset, list, tuple)):
+        return None
+    return frozenset(key for key in keys if isinstance(key, str))
+
+
+def managed_overlay(document: dict[str, object]) -> dict[str, object]:
+    """Apply Hermes's managed overlay to a profile read outside PluginContext."""
+    module = load_module("hermes_cli.managed_scope")
+    if module is None:
+        return document
+    apply = getattr(module, "apply_managed_overlay", None)
+    if not callable(apply):
+        raise RuntimeError("Hermes's managed settings reader is unavailable")
+    value = apply(document)
+    if not isinstance(value, dict):
+        raise RuntimeError("Hermes returned unreadable managed settings")
+    return value
+
+
+def managed_document() -> dict[str, object] | None:
+    """Hermes's managed config as Hermes reads it, or None when it cannot be read."""
+    module = load_module("hermes_cli.managed_scope")
+    reader = getattr(module, "load_managed_config", None)
+    if not callable(reader):
+        return None
+    try:
+        document = reader()
+    except Exception:
+        return None
+    return document if isinstance(document, dict) else None
+
+
+def managed_config_path() -> str | None:
+    """The managed file is a guardrail path too, when Hermes names one."""
+    module = load_module("hermes_cli.managed_scope")
+    reader = getattr(module, "get_managed_dir", None)
+    if not callable(reader):
+        return None
+    try:
+        directory = reader()
+    except Exception:
+        return None
+    from pathlib import Path
+
+    return str(directory / "config.yaml") if isinstance(directory, Path) else None

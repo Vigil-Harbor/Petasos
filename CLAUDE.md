@@ -1,144 +1,61 @@
-# CLAUDE.md
+# Repository guidance
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Petasos is a Python content-security library and a Hermes Agent plugin. The library owns configuration, scanner composition and tool-call policy. Hermes supplies plugin loading, settings writes, approvals, redaction and the dashboard that serves the Petasos tab.
 
-## What This Is
+## Run the gate
 
-Petasos is a pluggable, session-aware content security pipeline for Python AI agents. It composes OSS scanners (Presidio, PromptGuard 2, opt-in Semgrep, and the deprecated LLM Guard and LlamaFirewall) behind a unified `Scanner` protocol, adds session-aware orchestration (frequency tracking, escalation tiers, profile-driven tuning, tool call guard), and exposes every configuration surface for frontend binding. Published on PyPI as `petasos`.
-
-Primary consumer: Hermes Agent (Nous Research, Python 3.11+). Petasos imports in-process as a Python library — no sidecar or REST. Opt-in Semgrep uses explicitly owned, bounded local engine subprocesses; other backends remain in-process.
-
-### Two Consumer Platforms
-
-Hermes Desktop ships on macOS (native) and Windows (.exe / Electron). The macOS integration path is well-documented in the wiki. The Windows path has platform-specific footguns. Key differences: file tools bypass the terminal sandbox, hooks spawn via Git Bash (MINGW64) adding 100-200ms, config sections get wiped by the UI model switcher, and process signal handling diverges. PET-6 through PET-11 must account for both platforms.
-
-Petasos is [Drawbridge](https://github.com/ziomancer/clawmoat-drawbridge)-*inspired* (prior art) but fully uncoupled: own repo, own ticket prefix (PET), own release cadence, own threat model. No shared rule package, no cross-runtime conformance with Drawbridge.
-
-## Status
-
-Work items tracked in Plane (PET project). The file `petasos-project-spec-DRAFT-PARKED.md` is a superseded earlier draft preserved for reference — it proposed Drawbridge coupling that was explicitly rejected.
-
-## Build & Run
+Use Python 3.11 or newer and install the `dev` extra for development. Run the tools from the project's virtual environment (`.venv/bin/python`, `.venv/bin/ruff`, `.venv/bin/mypy`) with the checkout as the working directory; `python` may not be on the path.
 
 ```bash
-pip install -e .                    # base install (no ML deps)
-pip install -e ".[prompt-guard]"    # + PromptGuard 2 scanner
-pip install -e ".[presidio]"        # + Presidio PII scanner
-pip install -e ".[llm-guard]"       # + LLM Guard scanner (deprecated)
-pip install -e ".[llamafirewall]"   # + LlamaFirewall scanner (deprecated)
-pip install -e ".[semgrep]"       # adapter only; install the pinned engine separately
-pip install -e ".[all]"             # presidio + prompt-guard + console
-
-# Tooling
-ruff check .                        # lint
-ruff format .                       # format
-mypy --strict .                     # type check
-pytest                              # run all tests
-pytest tests/test_minimal_scanner.py # single test file
-pytest -k "test_normalize"          # single test by name
-pytest --cov                        # coverage report
+ruff check .
+ruff format --check .
+mypy --strict .
+python -m pytest -q
 ```
 
-Build backend is Hatch (`pyproject.toml`).
+Regenerate references with `python -m scripts.generate_reference`. The test suite regenerates them into a temporary directory and compares every file. It also runs documentation examples and checks relative links. Change schema metadata or parser help at its source rather than editing generated pages.
 
-## Architecture
+## Layout
 
-### All Features Free
+| Path | Owns |
+|---|---|
+| `petasos/__init__.py`, `model.py` | Stable exports and scanner/result types. |
+| `petasos/config/` | Schema, sections, jobs, strictness, resolution, secrets and migration. |
+| `petasos/scanners/registry.py` | The one config-to-scanner composition path. |
+| `petasos/scanners/minimal/`, `semgrep/`, optional backend modules | Detection and owned engine work. |
+| `petasos/pipeline/`, `session/` | Text inspection, ingestion, risk, audit, alerts, lineage and taint. |
+| `petasos/guard/`, `enforce/` | Guard evaluation and host-neutral enforcement lifecycle and decisions. |
+| `petasos/hermes/`, `cli.py` | Host adapter, settings writer seam, install, doctor, commands and dashboard API. |
+| `hermes-plugin/petasos/` | Directory plugin, manifest and installed dashboard assets. |
+| `hermes-plugin/dashboard-src/` | Dashboard source, built by `scripts/build_dashboard.py`. |
+| `scripts/generate_reference.py`, `docs/reference/` | Generated settings, layer, scanner and command reference. |
+| `tests/hermes_host/` | Opt-in real-Hermes harness in isolated temporary homes. |
+| `tests/parity/`, `tests/enforce_parity/` | Frozen behaviour records; do not regenerate casually. |
 
-All features ship free and keyless. Detection (scanner protocol, pluggable backends, syntactic pre-filter, normalization, PII anonymization) and session intelligence (frequency tracking, escalation tiers, profiles, tool call guard, audit trails, alerting) are both available out of the box. License machinery (`LicenseValidator`, `activate`/`deactivate`) is preserved for future supporter-token or compliance-tier use but does not gate any feature.
+The public root API is pinned to [the redesign contract](docs/architecture/redesign.md#9-public-api). Other package exports live in their `__all__` lists; submodule imports carry no root stability promise. Imports follow the dependency direction in that contract; only `hermes/` binds to the host, with the documented guard fallback exception.
 
-### Scanner Protocol
+## Invariants
 
-The load-bearing abstraction. Every detection backend implements:
+- Inspection returns errors in `PipelineResult`; host-facing enforcer callbacks do not raise. A block always carries a message.
+- The syntactic scanner runs independently of optional backends. Scanner enablement and failure policy come from the [generated reference](docs/reference/settings.md).
+- Structural rules cannot be suppressed or downgraded. The tier-three floor is enforced through `config/floors.py` and the schema. Settings, built-in layers and rule data remain immutable.
+- The base install has no third-party dependencies. Every scanner extra has a paired CI lane that exercises its real backend; scanner wrappers use real-backend tests, not mocks.
+- One settings tree resolves schema settings, job, strictness and overrides. A list replaces the list beneath it. Secrets are separate. Restart-bound changes are reported.
+- Hermes alone writes its config. The tab and CLI use its settings writer. `Enforcer` owns policy; the adapter translates host facts and hook results.
+- Semgrep cannot be enabled inside Hermes until the adapter owns its lifecycle. A library owner must close its engines and account for incomplete cleanup.
+- New tests assert behaviour. Do not pin doc wording, source text, line numbers or call-site counts; structural checks belong in architecture tests.
 
-```python
-class Scanner(Protocol):
-    @property
-    def name(self) -> str: ...
-    async def scan(
-        self, text: str, *, direction: Direction = "inbound", session_id: str | None = None
-    ) -> ScanResult: ...
-```
+## Real-Hermes tests and safety
 
-Six backends: `MinimalScanner` (23 rules across 6 families, zero deps, always ships), `PresidioScanner` (extras), `PromptGuardScanner` (extras), `SemgrepScanner` (adapter extra plus isolated engine and explicit lifecycle owner), and the deprecated `LlmGuardScanner` and `LlamaFirewallScanner` (extras).
+The default suite skips real-Hermes tests. Read [the harness instructions](tests/hermes_host/README.md) before enabling them. Prepare a new upstream clone and virtual environment in a dedicated sandbox directory (default `~/.cache/petasos/hermes-sandbox/<name>`); invoke Hermes only through its `bin/with-sandbox` wrapper. Each test gets a fresh home inside that sandbox. The wrapper and in-process guard reject account Hermes homes.
 
-### Pipeline Stages
+Never read, write, start, stop or signal a live Hermes installation on the machine. The harness instructions list the directories that are off limits. Do not touch machine-level Hermes configuration (`/etc/hermes`), use administrator rights, start a gateway, configure messaging or make model API calls. A task may prohibit the sandbox entirely. Check command help or use throwaway homes for ordinary CLI work.
 
-```
-Input → Normalize (NFKC, zero-width, homoglyph, RTL)
-  → Syntactic pre-filter (23 rules, always runs)
-  → Fan-out to N scanners (asyncio.gather)
-  → Merge findings (dedup overlapping positions)
-  → Frequency update → Escalation check
-  → Anonymize (if PII + enabled)
-  → Audit → Alerting
-  → PipelineResult
-```
+The default suite gives every test a throwaway home directory (`tests/conftest.py`), so it does not look at an installation either. Do not run tests in a way that bypasses that file.
 
-### Target Layout
+## Contracts
 
-```
-petasos/
-├── __init__.py
-├── _types.py            # Scanner protocol, ScanResult, ScanFinding, Direction, etc.
-├── normalize.py
-├── pipeline.py          # Pipeline class — central orchestrator
-├── config.py            # PetasosConfig dataclass
-├── scanners/
-│   ├── bootstrap.py     # build_scanners (shared config-to-scanner build, base install)
-│   ├── minimal.py       # MinimalScanner (zero-dep, 23 rules across 6 families)
-│   ├── llm_guard.py     # LlmGuardScanner (extras: llm-guard)
-│   ├── llama_firewall.py # LlamaFirewallScanner (extras: llamafirewall)
-│   ├── presidio.py      # PresidioScanner + anonymization (extras: presidio)
-│   ├── semgrep.py       # SemgrepScanner with explicit lifecycle ownership
-│   ├── _semgrep_runtime.py # process-wide bounded engine jobs
-│   └── prompt_guard.py  # PromptGuardScanner (extras: prompt-guard, one model per process)
-├── session/
-│   ├── frequency.py     # FrequencyTracker (exp decay + rolling window)
-│   ├── escalation.py    # 3-tier escalation (Tier 3 cannot be disabled)
-│   ├── profiles.py      # 5 built-in + custom profiles
-│   ├── guard.py         # ToolCallGuard
-│   ├── ingest.py        # scan_ingestion_result, IngestionScanResult, head/chunk/ceiling constants
-│   ├── audit.py         # AuditEmitter (verbosity-gated)
-│   ├── alerting.py      # AlertManager (5 rules + rate limiting)
-│   └── license.py       # JWT validation (local, parked for future use)
-```
-
-## Key Design Invariants
-
-- **Pipeline never throws** — all errors caught and returned in `PipelineResult`.
-- **Fail-mode defaults to `degraded`** — partial or total ML scanner failure blocks content; syntactic pre-filter (zero deps) always runs. Configurable to `open` or `closed`.
-- **Zero required ML deps at base install** — scanner backends are pip extras, not hard deps. `pip install petasos` is lightweight; `pip install petasos[all]` is about 1.2 GiB (Windows, Python 3.14) plus about 1.1 GB of gated PromptGuard weights.
-- **Frozen exports** — built-in profiles, rules, and default configs must be immutable (defensive copies, frozen dataclasses).
-- **Tier 3 escalation cannot be disabled** — hardcoded floor, no config override.
-- **License machinery is parked** — `activate()` validates and stores JWT state for future supporter/compliance recognition but does not gate any feature. All features are controlled by config toggles.
-
-## Test Standards
-
-- Target: 300+ tests, 90%+ line coverage on pipeline/frequency/guard/audit/alerting.
-- Scanner wrappers use integration tests against real backends, not mocks.
-- Latency budgets: syntactic-only < 5ms, single ML scanner < 100ms, full pipeline < 250ms (opted-in Semgrep code scans have the separately measured PET-254 latency exception) (CPU).
-- **Ingestion-path budget (PET-178).** Ceiling is 1,000,000 characters (imported
-  `_MAX_PARAM_TEXT_LEN`). Each ingesting result takes one `inspect()` of `HEAD_CHARS`
-  (2,048) plus overlapping `MinimalScanner.scan` chunks (`CHUNK_CHARS` 65,536, overlap
-  8,192). Serial curve evidence: `test_benchmark_ingestion_result_8kb`,
-  `test_benchmark_ingestion_result_100kb`, `test_benchmark_ingestion_result_1e6`
-  (measure-only under the existing skipif; ship-time means on this box: ~6.1ms at
-  8k, ~53ms at 100k, ~453ms at 1e6). 8-wide `inspect()` remains the overrun anchor
-  (`test_benchmark_ingestion_result_8wide_concurrent`, payload `HEAD_CHARS`). 8-wide
-  through the helper is K=1 serial (`test_benchmark_ingestion_helper_8wide_serial`).
-  ML still does not fit the 250ms parameter-scan budget. A tripped ML breaker is a 30s
-  duty cycle, not a permanent short-circuit. Remaining coupling: one shared `Pipeline`,
-  the shared 30s breaker, the inspect mutex held across the head's ML `await`, and
-  PromptGuard's process-wide inference lock across profile copies (PET-242).
-- **Scanner-extra / CI-lane pairing (PET-106).** Every scanner-backend extra in
-  `pyproject.toml [project.optional-dependencies]` (currently `llm-guard`,
-  `llamafirewall`, `presidio`, `prompt-guard`, `semgrep`; `console` excluded — not a scanner) MUST have a
-  paired `.github/workflows/extras-<extra>.yml` lane that installs the extra and
-  runs its real-backend tests. Backends whose live path needs no gated secret
-  additionally arm a `PETASOS_REQUIRE_<EXTRA>=1` collection guard
-  (`tests/conftest.py`, `NONSKIPPING_LANES`). Enforced by
-  `tests/test_ci_extras_lanes.py`; the default `ci.yml` lane stays ML-free.
+Read [redesign](docs/architecture/redesign.md), [guardrail integrity](docs/architecture/guardrail-integrity.md), [command overlap](docs/architecture/hermes-command-overlap.md) and [host facts](docs/architecture/hermes-host-facts.md) before changing policy or the host seam. [Console retirement](docs/architecture/console-retirement.md) records removed surfaces. Record user-visible changes under `[Unreleased]` in `CHANGELOG.md`. Do not rewrite design or acceptance records to make an implementation look compliant.
 
 ## Plan & Spec Reviews
 
@@ -155,10 +72,13 @@ petasos/
 ## Wiki — Vigil Harbor knowledge layer
 
 The wiki (a separate, private Vigil Harbor repository) is the
-compiled knowledge layer; Plane stays as the task tracker. See `SCHEMA.md`
+compiled knowledge layer; Plane stays as the task tracker. In that repository, see `SCHEMA.md`
 for conventions and the lint contract.
 
-**Before starting work:**
+Access the private wiki only when the task authorizes it. A task that prohibits
+wiki access takes precedence; prepare a local decision draft instead.
+
+**Before starting work when wiki access is authorized:**
 1. Read `index.md` to orient.
 2. Read `projects/petasos/architecture.md` and `projects/petasos/state.md`.
 3. Read `projects/petasos/filemap.md` before modifying files.
