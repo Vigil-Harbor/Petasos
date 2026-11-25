@@ -1399,6 +1399,7 @@ def test_command_rule_fields_keep_their_positions() -> None:
     assert rule.unknown_program is True
     assert rule.help_clears is False
     assert rule.except_exact == ()
+    assert rule.no_positionals is False
 
 
 @pytest.mark.parametrize(

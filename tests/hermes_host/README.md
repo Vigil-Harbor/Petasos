@@ -40,7 +40,7 @@ start, stop, or signal any of them.
 
 Python 3.11 or newer runs the script. Hermes itself is installed on
 CPython 3.14, which is the version its dependency pins target. `uv` must
-be on `PATH`. The tag defaults to `v0.23.1`.
+be on `PATH`. The tag defaults to `v0.23.3`.
 
 ```bash
 .venv/bin/python tests/hermes_host/prepare_sandbox.py --name lane-1
@@ -57,8 +57,9 @@ pinned tag, installs a sandbox-local managed CPython 3.14 and virtualenv with
 `<sandbox>/opt`, and builds the web bundle through `bin/with-sandbox`.
 No system Node, sudo or Homebrew installation is needed. The sandbox's
 `venv/bin/{node,npm,npx,pnpm}` links point inside it. The command also installs
-a local Python 3.11 browser environment in `shot` with Playwright 1.56.0 and
-Chromium headless shell under `opt/ms-playwright`, for the dashboard tab tests.
+a local Python 3.11 browser environment in `shot` with Playwright 1.56.0,
+Pillow 12.2.0, and Chromium headless shell under `opt/ms-playwright`, for the
+dashboard tab tests and animation encoding.
 All Hermes imports and build commands run through the wrapper.
 
 Rerun the same prepare command to resume or rebuild a partly cleaned sandbox.
@@ -214,11 +215,10 @@ Try it adds no events; Activity comes from `demo_harness.py`'s real hooks.
 Each input starts a fresh risk calculation, so the preview does not simulate a
 cumulative conversation score or a climb through tiers.
 
-Install Pillow only in the sandbox's browser environment, then regenerate from
-the worktree (choose a scratch output directory outside the repository):
+Preparation installs Pillow in the sandbox's browser environment. Regenerate
+from the worktree (choose a scratch output directory outside the repository):
 
 ```bash
-uv pip install --python ~/.cache/petasos/hermes-sandbox/pet-277-278-impl/shot/bin/python Pillow==12.2.0
 .venv/bin/python tests/hermes_host/capture_round.py \
   --sandbox ~/.cache/petasos/hermes-sandbox/pet-277-278-impl \
   --out ~/.cache/petasos/hermes-sandbox/pet-277-278-impl/tmp/readme-loop \
@@ -230,5 +230,5 @@ starts its dashboard through `bin/with-sandbox` on `127.0.0.1`, and stops it in
 `finally`. `--out` receives the PNG sequence, six named review frames, and
 `frames.json` with millisecond durations. The JSON report includes the actual
 encoded dimensions, frame count, duration, size, risk and browser errors.
-The dashboard test group also exercises recording and encoding when Pillow is
-installed in `shot`.
+The dashboard test group also exercises recording and encoding with Pillow in
+`shot`.

@@ -1526,6 +1526,31 @@ only reads a protected file counts as a change inside these scripts. An
 administrative share reached by the machine's own name or another of its
 addresses is not matched.
 
+## 20. Plugin bypass flag prefixes, v0.23.3
+
+Verified against Hermes `v0.23.3`, commit `caafe538`, using its own
+`hermes_cli._parser.build_top_level_parser` inside the dedicated sandbox
+copy `~/.cache/petasos/hermes-sandbox/lane-guard` through `bin/with-sandbox`.
+The regression is
+`tests/hermes_host/test_guardrail.py::test_hermes_parser_plugin_bypass_prefixes_are_guarded`.
+It tries every long-option prefix, both at top level and after `chat`, and
+checks Petasos recognition for every prefix that sets the parsed option.
+
+- Every prefix from `--sa` through `--safe-mode` sets `safe_mode`.
+- Every prefix from `--ignore-u` through `--ignore-user-config` sets
+  `ignore_user_config`.
+- argparse's default prefix matching remains enabled. `hermes_cli/main.py`
+  sets `HERMES_SAFE_MODE` from the parsed safe-mode option, so an accepted
+  abbreviation disables plugins just as the full spelling does.
+- `--prof` is refused by that parser. The pre-parser handling of `-p` and
+  `--profile` remains exact; Petasos does not add profile abbreviations.
+
+Petasos recognises each accepted bypass prefix alone or with an equals-joined
+value as a plugin change. The parser test discovers accepted prefixes rather
+than starting at Petasos's shortest spelling, so a newly accepted shorter
+prefix cannot silently escape the guard. The flag commands remain parser
+inputs and recognition strings; no chat session or model is started.
+
 ## What was not run
 
 - No Hermes gateway, no messaging platform, no model provider, and no
