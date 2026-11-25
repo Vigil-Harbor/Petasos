@@ -407,4 +407,4 @@ This is a deliberate change from 0.5, where a guardrail write is allowed
 below tier 2. The frozen enforcement record is not rewritten. The new
 decision, the guardrail event, and the settings-change events are named in
 `tests/enforce_parity/differences.json`. The guard corpus did not change.
-`docs/architecture/changelog-pending.md` names the break.
+`CHANGELOG.md` names the break under `[Unreleased]`.

@@ -55,7 +55,7 @@ The default suite gives every test a throwaway home directory (`tests/conftest.p
 
 ## Contracts
 
-Read [redesign](docs/architecture/redesign.md), [guardrail integrity](docs/architecture/guardrail-integrity.md), [command overlap](docs/architecture/hermes-command-overlap.md) and [host facts](docs/architecture/hermes-host-facts.md) before changing policy or the host seam. [Console retirement](docs/architecture/console-retirement.md) records removed surfaces. Keep pending release notes in [changelog-pending.md](docs/architecture/changelog-pending.md) during the redesign; leave `CHANGELOG.md` to release work. Do not rewrite design or acceptance records to make an implementation look compliant.
+Read [redesign](docs/architecture/redesign.md), [guardrail integrity](docs/architecture/guardrail-integrity.md), [command overlap](docs/architecture/hermes-command-overlap.md) and [host facts](docs/architecture/hermes-host-facts.md) before changing policy or the host seam. [Console retirement](docs/architecture/console-retirement.md) records removed surfaces. Record user-visible changes under `[Unreleased]` in `CHANGELOG.md`. Do not rewrite design or acceptance records to make an implementation look compliant.
 
 ## Plan & Spec Reviews
 
