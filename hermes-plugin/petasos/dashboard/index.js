@@ -1528,7 +1528,7 @@
     } else if (verdict.step && verdict.step.view) {
       action = h(Btn, { onClick: function () { go(verdict.step.view); } }, verdict.step.label);
     }
-    var showCoverage = ["off", "invalid"].indexOf(verdict.code) < 0 && props.detailsCurrent;
+    var showCoverage = ["off", "invalid", "unknown"].indexOf(verdict.code) < 0 && props.detailsCurrent;
     return h(
       Panel,
       {
@@ -2270,7 +2270,7 @@
         if (focusable) focusable.focus({ preventScroll: true });
       };
     }
-    var verdict = verdictOf(status);
+    var verdict = props.verdict;
     var usable = verdict.code !== "off" && verdict.code !== "invalid";
     startProfile = status.home || "";
     var starting = usable && catalog ? startingNow(catalog) : false;
@@ -2290,7 +2290,7 @@
           )
         : null;
     if (usable && catalog) {
-      setup = h(SetupControls, { catalog: catalog, status: status, locked: props.locked, saving: props.saving, onSave: props.onSave });
+      setup = h(SetupControls, { catalog: catalog, status: props.detailsCurrent ? status : {}, locked: props.locked, saving: props.saving, onSave: props.onSave });
     } else if (usable && props.catalogFailure) {
       setup = h(
         Panel,
@@ -3903,10 +3903,10 @@
 
     // A result belongs to the input, the trial settings, and the saved settings and protection state it ran under.
     // An unconfirmed or unread change counts: a result from before it describes settings that may be gone.
-    var statusNow = props.status || {};
+    var statusNow = props.detailsCurrent ? props.status || {} : {};
     var savedStamp = JSON.stringify([
       catalog && catalog.stored,
-      Boolean(statusNow.paused),
+      props.verdict.code,
       statusNow.protection,
       statusNow.role,
       statusNow.level,
@@ -4324,7 +4324,7 @@
         Panel,
         { title: ran && ran.trial ? "Trial result" : "Result", className: "petasos-result", id: "petasos-try-result" },
         live,
-        result.paused_note && !baseline
+        result.paused_note && !baseline && !stale && (trialPaused || (props.detailsCurrent && props.verdict.code === "paused"))
           ? h(Notice, { tone: "warning", title: trialPaused ? "Protection is paused in these trial settings" : "Protection is paused" }, result.paused_note)
           : null,
         stale
@@ -4362,7 +4362,7 @@
                           .join(" ")
                       : ".")
                 ),
-                baseline.paused_note ? h("p", { className: "petasos-compare-note" }, "Protection is paused now. " + baseline.paused_note) : null
+                baseline.paused_note && !stale && props.detailsCurrent && props.verdict.code === "paused" ? h("p", { className: "petasos-compare-note" }, "Protection is paused now. " + baseline.paused_note) : null
               )
             )
           : h(OutcomeHead, { outcome: result.outcome }),
@@ -5671,6 +5671,9 @@
       return row.origin === "override";
     }).length;
     var secrets = catalog.secrets || {};
+    var sessionCheck = props.detailsCurrent && ((props.status.doctor && props.status.doctor.checks) || []).filter(function (check) {
+      return check.id === "session_secret";
+    })[0];
     var basics = h(
       Panel,
       {
@@ -5754,11 +5757,15 @@
           [labels.overrides || "Your changes", overrideCount ? plural(overrideCount, "setting") + " set by you, on top of the job and strictness." : "None. The job and strictness decide every setting."],
           [
             "Session secret",
-            secrets.session_secret !== "set"
-              ? "Not set. Activity records are not signed."
-              : props.status.record_signing && props.status.record_signing.signed
-                ? "Set and usable. New activity records are signed; Activity shows whether each one still matches."
-                : "Set, but Petasos cannot make a signing key from it, so records are not signed. Running hermes petasos doctor says what is wrong with it.",
+            !props.detailsCurrent
+              ? "The current signing state could not be confirmed. Check the protection state again."
+              : secrets.session_secret !== "set"
+                ? "Not set. Activity records are not signed."
+                : props.status.record_signing && props.status.record_signing.signed
+                  ? "Set and usable. New activity records are signed; Activity shows whether each one still matches."
+                  : sessionCheck && (sessionCheck.status === "warn" || sessionCheck.status === "fail")
+                    ? "Set, but Petasos cannot make a signing key from it, so records are not signed. Running hermes petasos doctor says what is wrong with it."
+                    : "Set. Petasos has not confirmed whether it can sign new activity records.",
           ],
           ["Hash key", secrets.hash_key === "set" ? "Set." : "Not set. Only needed to hide personal details as fingerprints."],
         ],
@@ -6665,7 +6672,7 @@
               Notice,
               {
                 tone: "warning",
-                title: "Protection is paused",
+                title: verdict.title,
                 action: h(
                   Btn,
                   {
@@ -6677,7 +6684,7 @@
                   savingState[0] === "Resume protection" ? "Resuming…" : "Resume"
                 ),
               },
-              "Actions run unchecked. Each one is recorded."
+              verdict.reason
             )
           : null,
       h(

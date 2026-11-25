@@ -278,19 +278,27 @@ def test_a_finding_says_whether_these_settings_let_its_rule_be_turned_off() -> N
 
 def test_a_run_that_reported_an_error_does_not_call_an_optional_check_checked() -> None:
     """The error is not tied to one check, so none is confirmed, through to the response."""
+    from dataclasses import replace
     from types import SimpleNamespace
     from typing import cast
 
     from petasos.hermes.dashboard.playground import _mark, _scanner_rows
+    from petasos.model import PipelineResult
     from petasos.scanners.registry import ScannerStatus
 
     status = cast(
         "ScannerStatus",
         SimpleNamespace(id="presidio", label="Presidio", state="active", reason=None),
     )
-    clean = _mark({"scanners": _scanner_rows((status,), [], False)}, paused=False)
+    result = PipelineResult(
+        safe=True, findings=(), scanner_results=(ScanResult(scanner_name="presidio", findings=()),)
+    )
+    clean = _mark({"scanners": _scanner_rows((status,), [], False, result)}, paused=False)
     assert clean["scanners"][1]["operating"] == {"code": "checked", "label": "Checked"}
-    errored = _mark({"scanners": _scanner_rows((status,), [], False, errored=True)}, paused=False)
+    errored = _mark(
+        {"scanners": _scanner_rows((status,), [], False, replace(result, errors=("failed",)))},
+        paused=False,
+    )
     row = errored["scanners"][1]
     assert row["participated"] is False
     assert row["operating"] == {"code": "unconfirmed", "label": "Not confirmed"}

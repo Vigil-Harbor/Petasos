@@ -429,7 +429,7 @@ async def _text(
         message,
         findings,
         text,
-        _scanner_rows(statuses, skipped, timed_out, errored=_errored(result)),
+        _scanner_rows(statuses, skipped, timed_out, result),
         timed_out,
         redactor,
         subject="text_out" if way == "outbound" else "text_in",
@@ -582,7 +582,7 @@ async def _tool(
         message,
         findings,
         rendered,
-        _scanner_rows(statuses, skipped, timed_out, errored=_errored(pipeline.result)),
+        _scanner_rows(statuses, skipped, timed_out, pipeline.result),
         timed_out,
         redactor,
     )
@@ -774,30 +774,39 @@ def _scanner_rows(
     statuses: tuple[ScannerStatus, ...],
     skipped: list[dict[str, Any]],
     timed_out: bool,
-    errored: bool = False,
+    result: PipelineResult | None,
 ) -> list[dict[str, Any]]:
     """Which checks took part in this run.
 
-    ``errored`` says the run reported an error without naming the check it came
-    from. No optional check is then called checked: each is marked as not
-    confirmed, because this run cannot show it finished.
+    Configuration says which checks could run; only the request's result
+    says which did. An aggregate error cannot confirm optional checks finished.
     """
+    completed = (
+        {item.scanner_name for item in result.scanner_results if item.error is None}
+        if result is not None and not timed_out
+        else set()
+    )
+    basic_ran = "minimal" in completed
+    errored = _errored(result)
+    no_scan = "This run has no completed result for this check."
     rows: list[dict[str, Any]] = [
         {
             "id": "syntactic",
             "label": "Basic checks",
-            "participated": not timed_out,
-            "state": "active" if not timed_out else "unavailable",
-            "reason": _TIME_LIMIT if timed_out else None,
+            "participated": basic_ran,
+            "state": "active" if basic_ran else "unavailable",
+            "reason": _TIME_LIMIT if timed_out else None if basic_ran else no_scan,
             "link": None,
         }
     ]
     for status in statuses:
-        participated = status.state == "active" and not timed_out
+        participated = status.state == "active" and status.id in completed
         state = "unavailable" if timed_out and status.state == "active" else status.state
         reason = _PLAIN_REASON.get(status.state, status.reason)
         if status.state == "active" and timed_out:
             reason = _TIME_LIMIT
+        elif status.state == "active" and not participated:
+            reason = no_scan
         row: dict[str, Any] = {
             "id": status.id,
             "label": status.label,
@@ -806,7 +815,7 @@ def _scanner_rows(
             "reason": reason,
             "link": _link(state, status.id),
         }
-        if participated and errored:
+        if status.state == "active" and not timed_out and errored:
             row["participated"] = False
             row["unconfirmed"] = True
             row["reason"] = _RUN_ERROR

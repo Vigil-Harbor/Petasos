@@ -4,6 +4,14 @@ All notable changes to Petasos are documented here. Format follows [Keep a Chang
 
 ## [Unreleased]
 
+### Fixed
+
+- The dashboard uses the current protection reading for paused banners, scope,
+  Setup notes and signing details. Failed status reads after a save no longer
+  repeat earlier claims as current, and an absent signing check is shown as
+  unconfirmed. Try it reports a check as checked only when this request's scan
+  result confirms it ran.
+
 ### Added
 
 - PET-267: flagged tool results record the conversation risk score and its tier;
