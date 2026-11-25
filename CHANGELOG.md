@@ -300,6 +300,14 @@ All notable changes to Petasos are documented here. Format follows [Keep a Chang
   double quotes is now kept as a shell keeps it, so `"con\fig.yaml"` and
   `"h\ermes"` are no longer read as `config.yaml` and `hermes`.
 
+- On Windows the guardrail check also reads an unquoted drive path with
+  its backslashes as separators, beside the shell's own reading of it, so
+  `rm C:\Users\x\.hermes\config.yaml` and
+  `rm C:\x\hermes\nested\..\config.yaml` name the config. Git Bash drops
+  those backslashes and the file is not touched, so this reading adds an
+  ask and removes none. A backslash before a blank, a quote, another
+  backslash or a shell separator is still read as the shell reads it.
+
 - PET-302: on Windows, install, refresh and doctor now read a `file:` address
   such as `file:///C:/Users/x/petasos.whl` as the path it names. When the
   record of the build Hermes runs named its wheel that way and carried no

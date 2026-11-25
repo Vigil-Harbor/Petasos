@@ -111,6 +111,39 @@ def test_a_drive_letter_word_is_read_as_the_shell_reads_it(
     assert any(BACKSLASH in word for word in (*spelled.argv, *spelled.redirects))
 
 
+@pytest.mark.parametrize(
+    "native",
+    [
+        "C:\\Users\\x\\.hermes\\config.yaml",
+        "C:\\x\\hermes\\nested\\..\\config.yaml",
+        "C:\\x\\_cache\\-old\\~tmp\\$name\\config.yaml",
+        "C:\\x\\hermes\\*.yaml",
+    ],
+)
+def test_the_spelling_keeps_every_separator_of_a_native_path(native: str) -> None:
+    """A folder name need not start with a letter: ``.hermes`` is Hermes's own home."""
+    [(_shell_command, spelled)] = _spelled(f"rm {native}")
+    assert spelled is not None
+    assert spelled.argv == ("rm", native)
+
+
+@pytest.mark.parametrize("char", list(" \t\n'\"\\;|&()`<>"))
+def test_a_spelling_reads_an_escaped_shell_character_as_the_shell_does(char: str) -> None:
+    """Escaped, each of these is part of the word, so the command does not end there.
+
+    A spelling that took the backslash for a separator would read the
+    character after it as the shell's own, and hold other commands or words
+    than the shell's reading does.
+    """
+    [(command, spelled), (after, after_spelled)] = _spelled(f"rm C:\\x\\{char}y; echo ok")
+    assert after.argv == ("echo", "ok")
+    assert after_spelled is None
+    assert spelled is not None
+    # The one difference is the separator kept after the drive.
+    assert spelled.argv == ("rm", command.argv[1].replace("C:x", "C:\\x", 1))
+    assert spelled.redirects == command.redirects == ()
+
+
 def test_only_a_command_with_a_drive_letter_word_has_a_spelling() -> None:
     assert _spelled("rm hermes/conf\\ig.yaml")[0][1] is None
     assert _spelled("rm C:/x/hermes/config.yaml")[0][1] is None
@@ -257,6 +290,44 @@ def test_a_git_bash_command_names_the_config(tmp_path: Path, template: str) -> N
     hit = _recognize(tmp_path, "terminal", {"command": command})
     assert hit is not None, command
     assert hit.kind == "settings"
+
+
+@windows_only
+@pytest.mark.parametrize(
+    ("tail", "named"),
+    [
+        ("config.yaml", "config.yaml"),
+        ("plugins\\..\\config.yaml", "config.yaml"),
+        (".\\config.yaml", "config.yaml"),
+        ("*.yaml", "*.yaml"),
+    ],
+)
+def test_an_unquoted_native_path_under_a_dot_folder_names_the_config(
+    tmp_path: Path, tail: str, named: str
+) -> None:
+    """Hermes's home is ``.hermes``, and a native path may step through ``..``.
+
+    Git Bash drops these backslashes, so the file is not touched. The
+    Windows-path reading still names the config, and that only adds an ask.
+    The hit reports the path the command named, or the wildcard that covers it.
+    """
+    home = tmp_path / ".hermes"
+    (home / "plugins").mkdir(parents=True)
+    config = home / "config.yaml"
+    config.write_text("plugins: {}\n", encoding="utf-8")
+    surface = hermes_surface([str(config)], roots=(str(home),))
+    command = f"rm {home}{BACKSLASH}{tail}"
+    hit = recognize(
+        "terminal",
+        {"command": command},
+        surface=surface,
+        package=(),
+        environ={"HOME": str(tmp_path)},
+        cwd=str(tmp_path),
+    )
+    assert hit is not None, command
+    assert hit.kind == "settings"
+    assert hit.target == os.path.normcase(home.resolve() / named)
 
 
 @windows_only

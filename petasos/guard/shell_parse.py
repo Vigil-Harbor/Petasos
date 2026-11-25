@@ -41,6 +41,9 @@ _WRAPPER_VALUES = {
 
 
 _DQ_ESCAPED = frozenset({"$", "`", '"', "\\", "\n"})
+# What the shell's reading gives a meaning of its own outside quotes: a blank,
+# a line break, a quote, another backslash, a separator or a redirect.
+_SHELL_SPECIAL = frozenset(" \t\n'\"\\;|&()`<>")
 _EXECUTABLE_SUFFIXES = (".exe", ".cmd", ".bat", ".com")
 _HEREDOC_OPEN = re.compile(r"""<<-?[ \t]*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\1""")
 
@@ -112,9 +115,12 @@ def _spelled(text: str) -> list[tuple[_Simple, _Simple | None]]:
     ``C:Toolshermes.exe`` and ``C:/x/conf\\ig.yaml`` names ``C:/x/config.yaml``.
     The spelling keeps the separators of a drive-letter word, for a native
     path that reaches Windows without a shell, as program text's argument
-    lists do. Callers check it as well and keep any match: it may add a
-    match, never remove one. A kept backslash is never a separator, so both
-    parses hold the same commands in the same order.
+    lists do. A folder name need not start with a letter, so a folder whose
+    name starts with a dot (``C:\\Users\\x\\.hermes``) and a step up
+    (``\\..``) are read as Windows reads them. Callers check it as well and
+    keep any match: it may add a match, never remove one. A backslash
+    before a character in ``_SHELL_SPECIAL`` is read as the shell reads it,
+    so both parses hold the same commands and words in the same order.
     """
     shell = _parse(text)
     if "\\" not in text or ":" not in text:
@@ -128,8 +134,9 @@ def _spelled(text: str) -> list[tuple[_Simple, _Simple | None]]:
 def _parse(text: str, *, drive_paths: bool = False) -> list[_Simple]:
     """Shell words, redirects and assignments, as a POSIX shell reads them.
 
-    ``drive_paths`` keeps a backslash before a letter or digit in a word that
-    starts with a drive letter. Use it only through ``_spelled``.
+    ``drive_paths`` keeps a backslash in a word that starts with a drive
+    letter, unless the character after it is in ``_SHELL_SPECIAL``. Use it
+    only through ``_spelled``.
     """
     commands: list[_Simple] = []
     words: list[str] = []
@@ -182,13 +189,15 @@ def _parse(text: str, *, drive_paths: bool = False) -> list[_Simple]:
         if char == "\\" and index + 1 < length:
             nxt = text[index + 1]
             # The Windows-path reading of a pasted drive path keeps its
-            # separators rather than joining its parts.
+            # separators rather than joining its parts. The character after
+            # a kept backslash is an ordinary one, which the loop adds to
+            # the word on its next turn.
             if (
                 drive_paths
                 and len(buf) >= 2
                 and buf[0].isalpha()
                 and buf[1] == ":"
-                and nxt.isalnum()
+                and nxt not in _SHELL_SPECIAL
             ):
                 buf.append(char)
                 index += 1
