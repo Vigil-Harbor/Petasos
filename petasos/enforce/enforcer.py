@@ -125,7 +125,18 @@ class Enforcer:
         if self._core._closed:
             return _CLOSED_CALL
         try:
-            decision = decide(self._core, call)
+            with self._core.replays.lock:
+                key = self._core.replays.key(
+                    call, self._core.book.session_id(call.session, call.agent)
+                )
+                reused = self._core.replays.allowed(key)
+                reservation = None if reused else self._core.replays.reserve(key)
+            if reused:
+                decision: Decision = Allow()
+            else:
+                decision = decide(self._core, call)
+                with self._core.replays.lock:
+                    self._core.replays.finish(key, reservation, decision)
         except Exception as exc:
             logger.error("Petasos tool_call failed: %s", exc, exc_info=True)
             decision = self._failed_call(call)

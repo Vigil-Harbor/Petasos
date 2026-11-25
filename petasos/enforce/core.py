@@ -26,6 +26,7 @@ from petasos.enforce.engine import (
 )
 from petasos.enforce.events import EventSpool
 from petasos.enforce.guardrail import Grants, record_applied_settings
+from petasos.enforce.replays import Replays
 from petasos.enforce.runtime import AsyncBridge
 from petasos.enforce.types import (
     Clock,
@@ -99,6 +100,7 @@ class Core:
         self.runtime = AsyncBridge()
         self.book = Book(self.clock, self.limits.log_every_s, logger)
         self.grants = Grants()
+        self.replays = Replays(self.clock)
         self.check_failures = CheckFailures()
         self.phase = Phase.STARTING
         self.init_error: str | None = None
@@ -232,6 +234,8 @@ class Core:
                 event["score"] = kwargs.get("score")
             if kwargs.get("event_type") == "deferred" and "deferred_to" in kwargs:
                 event["deferred_to"] = kwargs["deferred_to"]
+            if kwargs.get("host_refuses") is True:
+                event["host_refuses"] = True
             sink = self._sink
             if sink is None:
                 return False

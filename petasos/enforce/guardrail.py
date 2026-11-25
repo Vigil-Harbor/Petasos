@@ -11,6 +11,7 @@ not ask again. When it expires, the next ask uses a new generation.
 from __future__ import annotations
 
 import logging
+import shlex
 import threading
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -18,6 +19,7 @@ from typing import TYPE_CHECKING, Any
 from petasos.config.schema import to_mapping
 from petasos.enforce.approvals import redact_display_text
 from petasos.enforce.decisions import Approve, Block, Decision
+from petasos.enforce.types import CommandJudge
 from petasos.guard.guardrail import CheckFailure, recognize
 from petasos.guard.surface import GuardrailHit, GuardrailSurface
 from petasos.guard.tools import _READ_ONLY_CANON
@@ -28,7 +30,7 @@ if TYPE_CHECKING:
 
     from petasos.config.sections import PetasosConfig
     from petasos.enforce.core import Core
-    from petasos.enforce.types import ApprovalNotice, ToolCall
+    from petasos.enforce.types import ApprovalNotice, HostInfo, ToolCall
 
 logger = logging.getLogger("petasos.enforce")
 
@@ -133,6 +135,46 @@ def parse_rule_key(key: str) -> tuple[int, str] | None:
     return int(generation), session_id
 
 
+def host_asks_person(host: HostInfo, call: ToolCall) -> bool:
+    """A simple approval-policy command that the host will freshly ask about.
+
+    This is only a host fact; ``ruling_for`` still owns the self-change mode.
+    Shell syntax we cannot prove simple keeps the ask here.
+    """
+    if canonicalize_tool_name(call.tool) != "terminal":
+        return False
+    command = call.args.get("command")
+    if not isinstance(command, str) or not command.strip():
+        return False
+    quote = ""
+    escaped = False
+    for char in command:
+        if escaped:
+            escaped = False
+            continue
+        if char == "\\" and quote != "'":
+            escaped = True
+            continue
+        if quote:
+            if char == quote:
+                quote = ""
+            elif quote == '"' and char in "$`":
+                return False
+        elif char in "\"'":
+            quote = char
+        elif char in ";|&()`<>$\n\r{}":
+            return False
+    try:
+        if not shlex.split(command):
+            return False
+        return (
+            host.approval_policy_command(command) is True
+            and host.command_judge(command) is CommandJudge.PERSON
+        )
+    except Exception:
+        return False
+
+
 def ruling_for(
     core: Core,
     call: ToolCall,
@@ -165,6 +207,8 @@ def ruling_for(
             kind,
         )
         return Ruling(Block(_unattended(call.tool)), "unattended", kind=kind, target=shown)
+    if host_asks_person(core.host, call):
+        return Ruling(None, "deferred", kind=kind, target=shown)
     until = core.grants.live(session_id, core.clock.monotonic())
     if until is not None:
         return Ruling(None, "covered", until=until, kind=kind, target=shown)
@@ -189,7 +233,15 @@ def ruling_for(
 
 
 def note_covered(core: Core, call: ToolCall, session_id: str, ruling: Ruling) -> None:
-    """Record that a live session grant covered the guardrail part of a call."""
+    """Record a live session grant or a fresh host-owned prompt."""
+    if ruling.name == "deferred":
+        _emit(core, call, session_id, name="deferred", kind=ruling.kind, target=ruling.target)
+        logger.info(
+            "PETASOS_GUARDRAIL decision=deferred tool=%s session=%s; host will ask a person",
+            call.tool,
+            session_id,
+        )
+        return
     _emit(
         core,
         call,
@@ -438,7 +490,7 @@ def _emit(
 
 
 def _severity(name: str) -> str | None:
-    if name in {"refused", "unattended", "held", "covered", "blocked"}:
+    if name in {"refused", "unattended", "held", "covered", "blocked", "deferred"}:
         return "critical"
     return None
 
@@ -452,6 +504,8 @@ def _reason(name: str, kind: str, target: str, until: float | None, scope: str |
         return f"guardrail unattended ({kind}): {target}".strip()
     if name == "held":
         return f"guardrail held ({kind}): {target}".strip()
+    if name == "deferred":
+        return f"guardrail left to host to ask a person ({kind}): {target}".strip()
     if name == "covered":
         return f"guardrail covered until {until} ({kind}): {target}".strip()
     if name == "session":

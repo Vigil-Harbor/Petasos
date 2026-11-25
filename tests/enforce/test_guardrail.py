@@ -670,3 +670,150 @@ def test_degraded_and_guardrail_asks_share_the_guardrail_key(
     assert "guardrail" in decision.message
     assert "petasos.degraded" in decision.message
     assert _score(enforcer) > 0
+
+
+@pytest.mark.parametrize("mode", ["approve", "never"])
+def test_fresh_host_policy_prompt_keeps_event_score_and_no_petasos_grant(
+    tmp_path: Path, mode: str
+) -> None:
+    from petasos.enforce import CommandJudge
+
+    sink = _Sink()
+    enforcer, _source, _path = _enforcer(tmp_path, sink, mode=mode, surface=hermes_surface(()))
+    enforcer._core.host = replace(
+        enforcer._core.host,
+        approval_policy_command=lambda _command: True,
+        command_judge=lambda _command: CommandJudge.PERSON,
+    )
+    try:
+        call = ToolCall(
+            "terminal", {"command": "hermes config set approvals.mode manual"}, session="s1"
+        )
+        decision = enforcer.tool_call(call)
+        assert isinstance(decision, Allow if mode == "approve" else Block)
+        assert _score(enforcer) > 0
+        events = [row for row in sink.events if row.get("event_type") == "guardrail"]
+        assert events[-1]["decision"] == ("deferred" if mode == "approve" else "refused")
+        assert not enforcer._core.grants.any_live(enforcer._core.clock.monotonic())
+        assert not enforcer._core.grants._asked
+        # A later standing/session permission stops PERSON, so Petasos asks.
+        if mode == "approve":
+            enforcer._core.host = replace(
+                enforcer._core.host, command_judge=lambda _command: CommandJudge.NOBODY
+            )
+            assert isinstance(enforcer.tool_call(call), Approve)
+    finally:
+        enforcer.close()
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "hermes config set approvals.mode manual; echo ok",
+        "hermes config set approvals.mode manual && echo ok",
+        "hermes config set approvals.mode manual | cat",
+        "hermes config set approvals.mode $(echo manual)",
+        "hermes config set approvals.mode `echo manual`",
+        "hermes config set approvals.mode manual > /tmp/note",
+        "hermes config set approvals.mode manual\necho ok",
+        "hermes config set approvals.mode 'manual",
+    ],
+)
+def test_compound_or_unreadable_policy_commands_keep_petasos_ask(command: str) -> None:
+    from petasos.enforce import CommandJudge
+    from petasos.enforce.guardrail import host_asks_person
+
+    host = HostInfo(
+        approval_policy_command=lambda _command: True,
+        command_judge=lambda _command: CommandJudge.PERSON,
+    )
+    assert not host_asks_person(host, ToolCall("terminal", {"command": command}))
+
+
+@pytest.mark.parametrize("judge", ["nobody", "guardian_then_person", "refused"])
+def test_only_a_person_can_own_guardrail_approval(tmp_path: Path, judge: str) -> None:
+    from petasos.enforce import CommandJudge
+
+    sink = _Sink()
+    enforcer, _source, _path = _enforcer(tmp_path, sink, surface=hermes_surface(()))
+    enforcer._core.host = replace(
+        enforcer._core.host,
+        approval_policy_command=lambda _command: True,
+        command_judge=lambda _command: CommandJudge(judge),
+    )
+    try:
+        assert isinstance(
+            enforcer.tool_call(
+                ToolCall(
+                    "terminal",
+                    {"command": "hermes config set approvals.mode manual"},
+                    session="s1",
+                )
+            ),
+            Approve,
+        )
+    finally:
+        enforcer.close()
+
+
+@pytest.mark.parametrize(
+    "tool, command, detected",
+    [
+        ("terminal", "hermes config set approvals.mode manual", False),
+        ("terminal", "hermes config set plugins.enabled []", False),
+    ],
+)
+def test_pattern_absent_other_keys_and_other_tools_keep_the_ask(
+    tmp_path: Path, tool: str, command: str, detected: bool
+) -> None:
+    from petasos.enforce import CommandJudge
+
+    sink = _Sink()
+    enforcer, _source, _path = _enforcer(tmp_path, sink, surface=hermes_surface(()))
+    enforcer._core.host = replace(
+        enforcer._core.host,
+        approval_policy_command=lambda _command: detected,
+        command_judge=lambda _command: CommandJudge.PERSON,
+    )
+    try:
+        assert isinstance(
+            enforcer.tool_call(ToolCall(tool, {"command": command}, session="s1")), Approve
+        )
+    finally:
+        enforcer.close()
+
+
+def test_a_nonterminal_guardrail_change_keeps_its_own_ask(tmp_path: Path) -> None:
+    from petasos.enforce import CommandJudge
+
+    sink = _Sink()
+    enforcer, _source, path = _enforcer(tmp_path, sink)
+    enforcer._core.host = replace(
+        enforcer._core.host,
+        approval_policy_command=lambda _command: True,
+        command_judge=lambda _command: CommandJudge.PERSON,
+    )
+    try:
+        assert isinstance(enforcer.tool_call(_write(path)), Approve)
+    finally:
+        enforcer.close()
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "hermes config set approvals.mode 'manual'",
+        "hermes config set approvals.smart_policy 'Ask about pipes | and separators ;'",
+        r"hermes config set approvals.smart_policy 'Keep $HOME and `text` literal'",
+        r'hermes config set approvals.smart_policy "Keep \$HOME literal"',
+    ],
+)
+def test_literal_quoted_values_are_still_one_simple_policy_command(command: str) -> None:
+    from petasos.enforce import CommandJudge
+    from petasos.enforce.guardrail import host_asks_person
+
+    host = HostInfo(
+        approval_policy_command=lambda _command: True,
+        command_judge=lambda _command: CommandJudge.PERSON,
+    )
+    assert host_asks_person(host, ToolCall("terminal", {"command": command}))

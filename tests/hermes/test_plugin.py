@@ -516,3 +516,52 @@ def test_another_profiles_plugin_copy_is_protected_and_its_neighbours_are_not(
         assert refused["action"] == "block"
     assert other_plugin is None
     assert notes is None
+
+
+def test_outer_only_host_passes_the_resolved_call_to_enforcement(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The older host's one fire still judges the real tool, with the host ids."""
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    seen: list[ToolCall] = []
+
+    class _Record(Enforcer):
+        def tool_call(self, call: ToolCall) -> Allow:
+            seen.append(call)
+            return Allow()
+
+    resolver = types.ModuleType("tools.tool_search")
+    resolver.resolve_underlying_call = lambda _args: (  # type: ignore[attr-defined]
+        "terminal",
+        {"command": "echo ok"},
+        None,
+    )
+    _install_host(monkeypatch, approve=True, subagent=True, yolo=False)
+    monkeypatch.setitem(sys.modules, "tools.tool_search", resolver)
+    monkeypatch.setattr(plugin_mod, "Enforcer", _Record)
+    ctx = _Ctx()
+    try:
+        register(ctx)
+        hook = ctx.hooks["pre_tool_call"][0]
+        assert (
+            hook(
+                tool_name="tool_call",
+                args={"name": "terminal"},
+                task_id="task",
+                session_id="host",
+                turn_id="turn",
+                tool_call_id="call",
+            )
+            is None
+        )
+    finally:
+        close()
+    assert len(seen) == 1
+    call = seen[0]
+    assert call.tool == "terminal" and call.args == {"command": "echo ok"}
+    assert (call.session, call.host_session, call.turn_id, call.tool_call_id) == (
+        "task",
+        "host",
+        "turn",
+        "call",
+    )

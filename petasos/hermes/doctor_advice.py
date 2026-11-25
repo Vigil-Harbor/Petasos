@@ -207,7 +207,8 @@ def approval_check(resolved: Resolved | None, *, hermes_available: bool) -> Chec
             status="ok",
             summary=(
                 f"Dangerous tool calls are handed to Hermes. {GUARDIAN_NAME} judges a risky "
-                "command first. Once a conversation looks risky, Petasos asks a person itself. "
+                "command first, except commands Hermes reserves for a person or refuses unread. "
+                "Once a conversation looks risky, Petasos asks a person itself. "
                 "If nobody is there to answer, Hermes refuses the call."
             ),
         )

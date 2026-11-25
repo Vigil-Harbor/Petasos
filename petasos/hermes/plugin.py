@@ -36,10 +36,12 @@ from petasos.hermes.home import (
 from petasos.hermes.host import (
     GUARDIAN_NAME,
     approval_grant,
+    approval_policy_command,
     approve_directive_available,
     command_judge,
     load_redactor,
     managed_config_path,
+    resolve_tool_call,
     rule_always_approved,
     subagent_hooks_available,
 )
@@ -150,7 +152,8 @@ class _Registration:
         if reg is None:
             return {"action": "block", "message": _INTERNAL_BLOCK}
         try:
-            call = _tool_call(tool_name, args, task_id, kwargs)
+            name, resolved_args = resolve_tool_call(tool_name, args)
+            call = _tool_call(name, resolved_args, task_id, kwargs)
             return directive(reg.enforcer.tool_call(call))
         except Exception:
             logger.exception("Petasos pre_tool_call failed")
@@ -360,6 +363,7 @@ def host_info() -> HostInfo:
         approval_grant=approval_grant,
         rule_always_approved=rule_always_approved,
         command_judge=command_judge,
+        approval_policy_command=approval_policy_command,
         command_checker=command_checker,
         command_prompt_name="Hermes",
         command_guardian_name=GUARDIAN_NAME,
