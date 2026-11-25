@@ -8,9 +8,9 @@ from typing import Any
 import pytest
 
 from tests.hermes_host.client import Sandbox, call
-from tests.hermes_host.marks import requires_hermes_sandbox
+from tests.hermes_host.marks import requires_hermes_at_least, requires_hermes_sandbox
 
-pytestmark = requires_hermes_sandbox
+pytestmark = [requires_hermes_sandbox, requires_hermes_at_least((0, 23, 3))]
 _HARNESS = Path(__file__).with_name("single_ask_harness.py")
 
 
