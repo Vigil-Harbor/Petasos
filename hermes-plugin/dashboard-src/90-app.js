@@ -542,7 +542,7 @@ function PetasosTab() {
             Notice,
             {
               tone: "warning",
-              title: "Protection is paused",
+              title: verdict.title,
               action: h(
                 Btn,
                 {
@@ -554,7 +554,7 @@ function PetasosTab() {
                 savingState[0] === "Resume protection" ? "Resuming…" : "Resume"
               ),
             },
-            "Actions run unchecked. Each one is recorded."
+            verdict.reason
           )
         : null,
     h(

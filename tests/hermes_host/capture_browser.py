@@ -556,10 +556,17 @@ def followups(request: dict[str, Any]) -> dict[str, Any]:
 
 def main() -> None:
     from tests.hermes_host.capture_loop import record
+    from tests.hermes_host.dashboard_current import check_current
 
     request = json.loads(sys.stdin.read() or "{}")
     action = str(request.get("action", ""))
-    handlers = {"check": check, "capture": capture, "followups": followups, "loop": record}
+    handlers = {
+        "check": check,
+        "capture": capture,
+        "followups": followups,
+        "loop": record,
+        "current": check_current,
+    }
     handler = handlers.get(action)
     if handler is None:
         raise SystemExit(f"unknown action {action}")

@@ -253,7 +253,7 @@ function VerdictPanel(props) {
   } else if (verdict.step && verdict.step.view) {
     action = h(Btn, { onClick: function () { go(verdict.step.view); } }, verdict.step.label);
   }
-  var showCoverage = ["off", "invalid"].indexOf(verdict.code) < 0 && props.detailsCurrent;
+  var showCoverage = ["off", "invalid", "unknown"].indexOf(verdict.code) < 0 && props.detailsCurrent;
   return h(
     Panel,
     {
@@ -995,7 +995,7 @@ function Overview(props) {
       if (focusable) focusable.focus({ preventScroll: true });
     };
   }
-  var verdict = verdictOf(status);
+  var verdict = props.verdict;
   var usable = verdict.code !== "off" && verdict.code !== "invalid";
   startProfile = status.home || "";
   var starting = usable && catalog ? startingNow(catalog) : false;
@@ -1015,7 +1015,7 @@ function Overview(props) {
         )
       : null;
   if (usable && catalog) {
-    setup = h(SetupControls, { catalog: catalog, status: status, locked: props.locked, saving: props.saving, onSave: props.onSave });
+    setup = h(SetupControls, { catalog: catalog, status: props.detailsCurrent ? status : {}, locked: props.locked, saving: props.saving, onSave: props.onSave });
   } else if (usable && props.catalogFailure) {
     setup = h(
       Panel,

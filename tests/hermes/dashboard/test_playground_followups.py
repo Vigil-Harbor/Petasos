@@ -103,6 +103,81 @@ def test_tool_hidden_text_is_the_same_scan_not_a_second_scan() -> None:
 
 
 @pytest.mark.parametrize(
+    "tier,enabled,arguments,exempt,scanned",
+    [
+        ("none", True, {"content": "hello"}, False, True),
+        ("tier1", True, {"content": "hello"}, False, True),
+        ("tier2", True, {"content": "hello"}, False, True),
+        ("tier3", True, {"content": "hello"}, False, False),
+        ("none", False, {"content": "hello"}, False, False),
+        ("none", True, {}, True, False),
+        ("tier1", True, {}, False, False),
+        ("tier2", True, {"content": None}, False, False),
+        ("none", True, {"content": "hello"}, True, True),
+    ],
+)
+def test_check_participation_comes_from_this_tool_requests_scan(
+    monkeypatch: pytest.MonkeyPatch,
+    tier: str,
+    enabled: bool,
+    arguments: dict[str, Any],
+    exempt: bool,
+    scanned: bool,
+) -> None:
+    from petasos.guard.guard import ToolCallGuard
+
+    calls: list[str] = []
+
+    class Counted(_PersonalInformation):
+        async def scan(
+            self, text: str, *, direction: Direction = "inbound", session_id: str | None = None
+        ) -> ScanResult:
+            calls.append(text)
+            return await super().scan(text, direction=direction, session_id=session_id)
+
+    monkeypatch.setattr(ToolCallGuard, "_derive_tier", lambda _self, _session, **_kw: tier)
+    body = _run(
+        tool="write_file",
+        arguments=arguments,
+        candidate={
+            "overrides": {
+                "tools": {"enabled": enabled, "exempt": ["write_file"] if exempt else []}
+            }
+        },
+        registry=(_spec(lambda _s, _c: Counted()),),
+    )
+    assert bool(calls) is scanned
+    rows = {row["id"]: row for row in body["scanners"]}
+    for check in ("syntactic", "presidio"):
+        assert rows[check]["participated"] is scanned
+        assert rows[check]["operating"]["code"] == ("checked" if scanned else "skipped")
+        if not scanned:
+            assert rows[check]["reason"]
+
+
+def test_an_early_pipeline_return_does_not_claim_optional_checks_ran() -> None:
+    calls: list[str] = []
+
+    class Counted(_PersonalInformation):
+        async def scan(
+            self, text: str, *, direction: Direction = "inbound", session_id: str | None = None
+        ) -> ScanResult:
+            calls.append(text)
+            return await super().scan(text, direction=direction, session_id=session_id)
+
+    body = _run(
+        text='{"a":' * 15 + '"value"' + "}" * 15,
+        candidate={"overrides": {"fail_mode": "closed"}},
+        registry=(_spec(lambda _s, _c: Counted()),),
+    )
+    assert body["findings"]
+    assert calls == []
+    rows = {row["id"]: row for row in body["scanners"]}
+    assert rows["syntactic"]["operating"]["code"] == "checked"
+    assert rows["presidio"]["operating"]["code"] == "skipped"
+
+
+@pytest.mark.parametrize(
     ("candidate", "text", "code", "sentence"),
     [
         (

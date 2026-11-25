@@ -133,6 +133,58 @@ def test_the_tab_says_what_the_record_can_show(tab_report: dict[str, Any]) -> No
     assert "adds no Activity record" in tryit
 
 
+@pytest.fixture(scope="module")
+def current_dashboard(petasos_wheel: Path) -> Iterator[str]:
+    """A separate home for saves and injected read failures, with a usable test key."""
+    home = Path(prepare(petasos_wheel, "current-reading", populate=False)["home"])
+    (home / ".env").write_text("PETASOS_SESSION_SECRET=Y3VycmVudC1yZWFkaW5n\n")
+    board = start(petasos_wheel, home)
+    try:
+        yield board.url
+    finally:
+        assert stop(board.pid)
+
+
+@pytest.mark.parametrize("case", ["scope", "signing", "saved_pause", "resume", "resume_compare"])
+def test_claims_follow_the_current_reading(
+    petasos_wheel: Path, current_dashboard: str, case: str
+) -> None:
+    """Read failures after real saves cannot pass earlier details off as current."""
+    report = run_browser(
+        petasos_wheel,
+        {"action": "current", "url": current_dashboard, "case": case},
+        timeout=120,
+    )
+    assert report["errors"] == [], report
+    if case == "scope":
+        assert report["current_rows"], report
+        assert report["unknown_rows"] == [], report
+        assert report["recovered_rows"] == report["current_rows"], report
+    elif case == "signing":
+        # Missing, failed, usable and unread are different evidence states.
+        assert len({report[key] for key in ("signed", "failed", "absent", "stale")}) == 4, report
+        assert report["recovered"] == report["signed"], report
+        assert report["after_save"] == report["signed"], report
+        assert report["failed_reads"] > 0, report
+    elif case == "saved_pause":
+        assert report["failed_reads"] > 0, report
+        assert report["banner_title"] == report["verdict_title"], report
+        assert report["banner_reason"] == report["verdict_reason"], report
+    else:
+        assert report["failed_reads"] > 0, report
+        assert report["paused_setup_notes"], report
+        assert report["saved_setup_notes"] == [], report
+        assert report["recovered_setup_notes"] == [], report
+        assert report["result_retained"], report
+        if case == "resume_compare":
+            assert report["paused_live_note"] not in report["stale_live_notes"], report
+        else:
+            assert report["paused_result_notices"], report
+            assert not set(report["paused_result_notices"]) & set(
+                report["stale_result_notices"]
+            ), report
+
+
 def test_try_it_hidden_text_risk_and_version(petasos_wheel: Path) -> None:
     """Both themes and widths show the API's hidden text, score, limits and version."""
     home = prepare_trial(petasos_wheel)

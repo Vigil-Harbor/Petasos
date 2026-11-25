@@ -354,10 +354,10 @@ function TryIt(props) {
 
   // A result belongs to the input, the trial settings, and the saved settings and protection state it ran under.
   // An unconfirmed or unread change counts: a result from before it describes settings that may be gone.
-  var statusNow = props.status || {};
+  var statusNow = props.detailsCurrent ? props.status || {} : {};
   var savedStamp = JSON.stringify([
     catalog && catalog.stored,
-    Boolean(statusNow.paused),
+    props.verdict.code,
     statusNow.protection,
     statusNow.role,
     statusNow.level,
@@ -775,7 +775,7 @@ function TryIt(props) {
       Panel,
       { title: ran && ran.trial ? "Trial result" : "Result", className: "petasos-result", id: "petasos-try-result" },
       live,
-      result.paused_note && !baseline
+      result.paused_note && !baseline && !stale && (trialPaused || (props.detailsCurrent && props.verdict.code === "paused"))
         ? h(Notice, { tone: "warning", title: trialPaused ? "Protection is paused in these trial settings" : "Protection is paused" }, result.paused_note)
         : null,
       stale
@@ -813,7 +813,7 @@ function TryIt(props) {
                         .join(" ")
                     : ".")
               ),
-              baseline.paused_note ? h("p", { className: "petasos-compare-note" }, "Protection is paused now. " + baseline.paused_note) : null
+              baseline.paused_note && !stale && props.detailsCurrent && props.verdict.code === "paused" ? h("p", { className: "petasos-compare-note" }, "Protection is paused now. " + baseline.paused_note) : null
             )
           )
         : h(OutcomeHead, { outcome: result.outcome }),

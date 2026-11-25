@@ -1012,6 +1012,9 @@ function Settings(props) {
     return row.origin === "override";
   }).length;
   var secrets = catalog.secrets || {};
+  var sessionCheck = props.detailsCurrent && ((props.status.doctor && props.status.doctor.checks) || []).filter(function (check) {
+    return check.id === "session_secret";
+  })[0];
   var basics = h(
     Panel,
     {
@@ -1095,11 +1098,15 @@ function Settings(props) {
         [labels.overrides || "Your changes", overrideCount ? plural(overrideCount, "setting") + " set by you, on top of the job and strictness." : "None. The job and strictness decide every setting."],
         [
           "Session secret",
-          secrets.session_secret !== "set"
-            ? "Not set. Activity records are not signed."
-            : props.status.record_signing && props.status.record_signing.signed
-              ? "Set and usable. New activity records are signed; Activity shows whether each one still matches."
-              : "Set, but Petasos cannot make a signing key from it, so records are not signed. Running hermes petasos doctor says what is wrong with it.",
+          !props.detailsCurrent
+            ? "The current signing state could not be confirmed. Check the protection state again."
+            : secrets.session_secret !== "set"
+              ? "Not set. Activity records are not signed."
+              : props.status.record_signing && props.status.record_signing.signed
+                ? "Set and usable. New activity records are signed; Activity shows whether each one still matches."
+                : sessionCheck && (sessionCheck.status === "warn" || sessionCheck.status === "fail")
+                  ? "Set, but Petasos cannot make a signing key from it, so records are not signed. Running hermes petasos doctor says what is wrong with it."
+                  : "Set. Petasos has not confirmed whether it can sign new activity records.",
         ],
         ["Hash key", secrets.hash_key === "set" ? "Set." : "Not set. Only needed to hide personal details as fingerprints."],
       ],
