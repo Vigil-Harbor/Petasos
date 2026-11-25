@@ -273,6 +273,11 @@ it got in.
 
 ## What is not built
 
+- Hermes's `/approvals` chat slash command writes `approvals.mode` outside
+  this guard. It is a person's command, not an agent tool call. In Hermes
+  v0.23.3, the `pre_command` plugin hook can only observe
+  (`hermes_cli/plugins.py`, the hook contract around line 200); it cannot
+  refuse that command.
 - Protection against an account that can redirect the managed scope
   (`HERMES_MANAGED_DIR`) for a new Hermes process, which bypasses a machine
   pin. The doctor reports it when it can read the machine file.

@@ -136,6 +136,76 @@ print(json.dumps({"block": block, "enabled": enabled()}))
     assert result["enabled"] is True
 
 
+def test_hermes_parser_plugin_bypass_prefixes_are_guarded(installed: Sandbox) -> None:
+    """Discover accepted prefixes from Hermes, including any newly shorter ones."""
+    result = _run(
+        installed,
+        r"""
+import contextlib
+import io
+import shlex
+from hermes_cli._parser import build_top_level_parser
+from petasos.guard.guardrail import recognize
+from petasos.hermes.guardrail import hermes_surface
+
+parser, _subparsers, _chat = build_top_level_parser()
+surface = hermes_surface(())
+accepted = {}
+missed = []
+for full, dest in (("--safe-mode", "safe_mode"),
+                   ("--ignore-user-config", "ignore_user_config")):
+    for before in ([], ["chat"]):
+        key = " ".join([*before, full])
+        accepted[key] = []
+        for length in range(3, len(full) + 1):
+            prefix = full[:length]
+            with contextlib.redirect_stderr(io.StringIO()):
+                try:
+                    args = parser.parse_args([*before, prefix])
+                except SystemExit:
+                    continue
+            if getattr(args, dest, False) is not True:
+                continue
+            accepted[key].append(prefix)
+            for suffix in ("", "=1", "=false"):
+                command = shlex.join(["hermes", *before, prefix + suffix])
+                hit = recognize("terminal", {"command": command}, surface=surface)
+                if hit is None or hit.kind != "plugin":
+                    missed.append(command)
+profile_refused = []
+for before in ([], ["chat"]):
+    with contextlib.redirect_stderr(io.StringIO()):
+        try:
+            parser.parse_args([*before, "--prof", "work"])
+        except SystemExit as exc:
+            profile_refused.append(exc.code != 0)
+        else:
+            profile_refused.append(False)
+print(json.dumps({"accepted": accepted, "missed": missed, "profile_refused": profile_refused}))
+""",
+    )
+    accepted = result["accepted"]
+    assert isinstance(accepted, dict) and len(accepted) == 4
+    for command, prefixes in accepted.items():
+        assert isinstance(prefixes, list) and command.split()[-1] in prefixes
+    assert result["missed"] == []
+    assert result["profile_refused"] == [True, True]
+
+
+def test_under_never_the_plugin_menu_is_blocked(installed: Sandbox) -> None:
+    result = _run(
+        installed,
+        r"""
+save("never")
+before = config.read_bytes()
+block = dispatch("terminal", {"command": "hermes plugins"}, "menu", "menu")
+print(json.dumps({"block": block, "unchanged": config.read_bytes() == before}))
+""",
+    )
+    assert _blocked(result)
+    assert result["unchanged"] is True
+
+
 def test_module_commands_follow_self_change_policy(installed: Sandbox) -> None:
     """Module spellings reach the real hook; commands remain unevaluated strings."""
     result = _run(

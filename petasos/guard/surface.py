@@ -60,6 +60,9 @@ class CommandRule:
     # (see ``recognize``). Any other spelling, or these words among other
     # commands, inside a script or as an argument list, still matches.
     except_exact: tuple[str, ...] = ()
+    # Match only when no positional target follows ``words``. A comment
+    # starter and the words after it do not name a target (see ``_targets``).
+    no_positionals: bool = False
 
     def __post_init__(self) -> None:
         if self.kind not in _KINDS:

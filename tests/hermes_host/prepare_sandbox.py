@@ -27,10 +27,11 @@ except ModuleNotFoundError:  # run as a script: the module sits beside this file
     from sandbox_guard import protected_directory  # type: ignore[import-not-found,no-redef]
 
 HERMES_REPO = "https://github.com/NousResearch/hermes-agent.git"
-DEFAULT_TAG = "v0.23.1"
+DEFAULT_TAG = "v0.23.3"
 NODE_VERSION = "26.13.1"
 PNPM_VERSION = "12.15.0"
 PLAYWRIGHT_VERSION = "1.56.0"
+PILLOW_VERSION = "12.2.0"
 MANIFEST = "sandbox-manifest.json"
 
 WRAPPER = """#!/bin/bash
@@ -311,6 +312,7 @@ def prepare(dest: Path, tag: str) -> None:
             "--python",
             str(dest / "shot" / "bin" / "python"),
             f"playwright=={PLAYWRIGHT_VERSION}",
+            f"Pillow=={PILLOW_VERSION}",
         ],
         env=env,
     )
@@ -333,6 +335,7 @@ def prepare(dest: Path, tag: str) -> None:
         if path.is_file() and os.access(path, os.X_OK)
     }
     data["playwright"] = {"version": PLAYWRIGHT_VERSION, "executables_sha256": browser_hashes}
+    data["pillow"] = {"version": PILLOW_VERSION}
     data["python"] = {
         "version": _output([str(wrapper), "python", "--version"]),
         "executable_sha256": _sha256(dest / "venv" / "bin" / "python"),
@@ -399,7 +402,9 @@ def main() -> None:
         "--name", default="default", help="Name under ~/.cache/petasos/hermes-sandbox"
     )
     parser.add_argument("--dest", type=Path, help="Override the default durable sandbox directory")
-    parser.add_argument("--tag", default=DEFAULT_TAG, help="Pinned Hermes tag (default v0.23.1)")
+    parser.add_argument(
+        "--tag", default=DEFAULT_TAG, help=f"Pinned Hermes tag (default {DEFAULT_TAG})"
+    )
     parser.add_argument(
         "--copy-from", type=Path, help="Copy a prepared sandbox into a new destination"
     )

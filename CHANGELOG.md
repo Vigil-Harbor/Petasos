@@ -40,6 +40,12 @@ All notable changes to Petasos are documented here. Format follows [Keep a Chang
 
 ### Changed
 
+- The guardrail recogniser treats Hermes's accepted abbreviations of
+  `--safe-mode` and `--ignore-user-config`, including equals-joined values,
+  as plugin changes. Bare `hermes plugins` is also a change because its
+  interactive menu can rewrite the enabled and disabled plugin lists;
+  help and read-only verbs remain available.
+
 - The guardrail recogniser flags everything the 0.5.0 guard flags. It reads
   every command of a tool call rather than the first 64 commands and
   100,000 characters, and reports a script nested past its depth limit

@@ -29,6 +29,8 @@ def _rule_matches(argv: tuple[str, ...], rule: CommandRule) -> bool:
         return False
     rest = argv[len(rule.words) :]
     positionals = [word for word in rest if not word.startswith("-")]
+    if rule.no_positionals and _targets(positionals):
+        return False
     if rule.tail is not None:
         # Hermes splits a key at each ``.``: ``approvals_backup`` is another key.
         key = positionals[0].casefold() if positionals else ""

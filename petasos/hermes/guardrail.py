@@ -96,6 +96,10 @@ def hermes_surface(paths: Iterable[str], roots: Iterable[str] = ()) -> Guardrail
     for raw in paths:
         labelled[_kind(str(raw))].add(str(raw))
     commands: list[CommandRule] = []
+    # Without a verb Hermes opens a menu that changes both plugin lists.
+    commands.append(
+        CommandRule("plugin", ("hermes", "plugins"), "hermes plugins", no_positionals=True)
+    )
     # A command marked ``help_clears=False`` writes Hermes's configuration.
     for verb in ("disable", "remove", "rm", "uninstall"):
         commands.append(
@@ -329,8 +333,14 @@ def hermes_surface(paths: Iterable[str], roots: Iterable[str] = ()) -> Guardrail
             ),
         ),
         flags=(
-            FlagRule("plugin", "hermes", "--safe-mode", "hermes --safe-mode"),
-            FlagRule("plugin", "hermes", "--ignore-user-config", "hermes --ignore-user-config"),
+            *(
+                FlagRule("plugin", "hermes", flag, f"hermes {full}")
+                for full, shortest in (
+                    ("--safe-mode", "--sa"),
+                    ("--ignore-user-config", "--ignore-u"),
+                )
+                for flag in _prefixes(full, shortest)
+            ),
             FlagRule("plugin", "hermes", "--profile", "hermes --profile"),
             FlagRule("plugin", "hermes", "-p", "hermes -p"),
         ),
